@@ -165,7 +165,185 @@ function drawGem(ctx,sx,sy,size,hue,bri,time,spark,zoom){
   }
 }
 
-// ─── 퍼즐 판 렌더 ────────────────────────────────────────────────────────────
+// ─── 파편 슬롯 레이아웃 (정규화 좌표, 반지름 1.0 기준) ───────────────────────
+// 구 표면을 깨진 유리처럼 덮는 14개 파편 슬롯
+const SHARD_SLOTS = [
+  // 중앙 상단부터 시계방향으로 채워지는 느낌
+  [[-.08,-.72],[.28,-.55],[.08,-.28],[-.32,-.38]],          // 0: 상단 좌
+  [[.08,-.72],[.52,-.60],[.28,-.55]],                        // 1: 상단 중
+  [[.28,-.55],[.52,-.60],[.68,-.28],[.42,-.18]],             // 2: 상단 우
+  [[.08,-.28],[.28,-.55],[.42,-.18],[.22,.08],[-.08,.02]],   // 3: 중앙 우상
+  [[.42,-.18],[.68,-.28],[.72,.18],[.48,.32]],               // 4: 우측 상
+  [[.48,.32],[.72,.18],[.62,.52],[.32,.58]],                 // 5: 우측 하
+  [[.22,.08],[.48,.32],[.32,.58],[.08,.62],[-.02,.28]],      // 6: 중앙 우하
+  [[-.02,.28],[.08,.62],[-.18,.72],[-.38,.52]],              // 7: 하단 우
+  [[-.38,.52],[-.18,.72],[-.48,.62],[-.58,.32]],             // 8: 하단 좌
+  [[-.32,.08],[-.02,.28],[-.38,.52],[-.58,.32],[-.62,.02]],  // 9: 중앙 좌하
+  [[-.68,.18],[-.62,.02],[-.58,.32]],                        // 10: 좌측 하
+  [[-.72,-.22],[-.68,.18],[-.62,.02],[-.42,-.18]],           // 11: 좌측 상
+  [[-.42,-.18],[-.62,.02],[-.32,.08],[-.08,.02],[-.12,-.32]],// 12: 중앙 좌상
+  [[-.32,-.38],[-.08,-.28],[-.12,-.32],[-.42,-.18],[-.52,-.52]],// 13: 상단 좌하
+];
+
+// ─── 구체 디테일 뷰 — 검은 바둑돌 + 보석 파편 ────────────────────────────────
+function drawSphereDetail(ctx,cw,ch,gems,time,alpha){
+  if(alpha<0.01)return;
+  ctx.globalAlpha=alpha;
+
+  // 배경: 짙은 어둠
+  ctx.fillStyle=`rgba(4,3,10,${alpha*0.96})`;ctx.fillRect(0,0,cw,ch);
+
+  const isLS=cw>ch;
+  const sR=Math.round(isLS?Math.min(ch*0.38,cw*0.26):Math.min(cw*0.44,ch*0.30));
+  const sCX=Math.round(isLS?cw*0.32:cw*0.50);
+  const sCY=Math.round(isLS?ch*0.50:ch*0.40);
+
+  // ── 바깥 글로우 ────────────────────────────────────────────────────────────
+  const outerGlow=ctx.createRadialGradient(sCX,sCY,sR*0.6,sCX,sCY,sR*1.55);
+  outerGlow.addColorStop(0,"rgba(80,60,140,0.0)");
+  outerGlow.addColorStop(0.5,`rgba(60,40,110,${0.12*alpha})`);
+  outerGlow.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle=outerGlow;ctx.beginPath();ctx.arc(sCX,sCY,sR*1.55,0,Math.PI*2);ctx.fill();
+
+  // ── 검은 구 (바둑돌) ───────────────────────────────────────────────────────
+  ctx.save();
+  ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);ctx.clip();
+
+  // 구 기본 — 딥 블랙
+  const baseGrad=ctx.createRadialGradient(sCX,sCY,0,sCX,sCY,sR);
+  baseGrad.addColorStop(0,"rgb(22,18,32)");
+  baseGrad.addColorStop(0.5,"rgb(12,9,20)");
+  baseGrad.addColorStop(1,"rgb(4,3,8)");
+  ctx.fillStyle=baseGrad;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
+
+  // ── 파편 슬롯 렌더 ────────────────────────────────────────────────────────
+  SHARD_SLOTS.forEach((poly,idx)=>{
+    const gem=gems[idx];
+    const pts=poly.map(([nx,ny])=>([sCX+nx*sR,sCY+ny*sR]));
+
+    // 폴리곤 경로
+    ctx.beginPath();
+    pts.forEach(([x,y],i)=>i===0?ctx.moveTo(x,y):ctx.lineTo(x,y));
+    ctx.closePath();
+
+    if(gem){
+      // 채워진 파편 — 보석 색상 + 파세트 그라디언트
+      const cx2=pts.reduce((s,[x])=>s+x,0)/pts.length;
+      const cy2=pts.reduce((s,[,y])=>s+y,0)/pts.length;
+      const shimmer=Math.sin(time*1.8+idx*0.7)*0.12+0.88;
+
+      // 파세트 그라디언트 (빛이 좌상단에서)
+      const g=ctx.createLinearGradient(
+        cx2-sR*0.4,cy2-sR*0.4,
+        cx2+sR*0.35,cy2+sR*0.35
+      );
+      g.addColorStop(0,`hsla(${gem.hue},90%,82%,${shimmer*0.95})`);
+      g.addColorStop(0.3,`hsla(${gem.hue},80%,58%,${shimmer*0.90})`);
+      g.addColorStop(0.65,`hsla(${gem.hue},70%,35%,${shimmer*0.85})`);
+      g.addColorStop(1,`hsla(${gem.hue},60%,18%,${shimmer*0.80})`);
+      ctx.fillStyle=g;ctx.fill();
+
+      // 내부 하이라이트 (좌상단 반사)
+      const hx=cx2-sR*0.18,hy=cy2-sR*0.18;
+      const hlg=ctx.createRadialGradient(hx,hy,0,hx,hy,sR*0.28);
+      hlg.addColorStop(0,`hsla(${gem.hue},100%,96%,${shimmer*0.65})`);
+      hlg.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle=hlg;ctx.fill();
+
+      // 파편 경계선 — 샤프하게
+      ctx.strokeStyle=`hsla(${gem.hue},80%,90%,0.55)`;
+      ctx.lineWidth=0.8;ctx.stroke();
+
+      // 반짝임 (시간에 따라 랜덤하게)
+      const sparkChance=Math.sin(time*2.2+idx*1.3);
+      if(sparkChance>0.6){
+        const spx=cx2+Math.cos(time+idx)*sR*0.15;
+        const spy=cy2+Math.sin(time*1.3+idx)*sR*0.12;
+        ctx.beginPath();
+        const ss=sR*0.045*((sparkChance-0.6)/0.4);
+        ctx.moveTo(spx,spy-ss*2.5);ctx.lineTo(spx+ss*0.5,spy-ss*0.5);
+        ctx.lineTo(spx+ss*2.5,spy);ctx.lineTo(spx+ss*0.5,spy+ss*0.5);
+        ctx.lineTo(spx,spy+ss*2.5);ctx.lineTo(spx-ss*0.5,spy+ss*0.5);
+        ctx.lineTo(spx-ss*2.5,spy);ctx.lineTo(spx-ss*0.5,spy-ss*0.5);
+        ctx.closePath();
+        ctx.fillStyle=`hsla(${gem.hue},100%,98%,${(sparkChance-0.6)/0.4*0.9})`;ctx.fill();
+      }
+
+    }else{
+      // 빈 슬롯 — 구 표면에 음각된 느낌
+      ctx.fillStyle="rgba(0,0,0,0.35)";ctx.fill();
+      ctx.strokeStyle="rgba(80,70,120,0.25)";ctx.lineWidth=0.6;ctx.stroke();
+    }
+  });
+
+  // ── 구 좌상단 반사광 (바둑돌 느낌) ────────────────────────────────────────
+  const hlx=sCX-sR*0.32,hly=sCY-sR*0.30;
+  const hl=ctx.createRadialGradient(hlx,hly,0,hlx,hly,sR*0.50);
+  hl.addColorStop(0,"rgba(255,255,255,0.28)");
+  hl.addColorStop(0.4,"rgba(220,210,255,0.08)");
+  hl.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=hl;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
+
+  // 구 아래쪽 약한 반사 (바둑돌 특유)
+  const rl=ctx.createRadialGradient(sCX+sR*0.25,sCY+sR*0.38,0,sCX+sR*0.25,sCY+sR*0.38,sR*0.28);
+  rl.addColorStop(0,"rgba(180,160,255,0.06)");rl.addColorStop(1,"rgba(0,0,0,0)");
+  ctx.fillStyle=rl;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
+
+  ctx.restore();
+
+  // 구 테두리 — 얇고 선명하게
+  ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);
+  ctx.strokeStyle="rgba(120,100,180,0.35)";ctx.lineWidth=1;ctx.stroke();
+
+  // 채운 개수 레이블
+  const filled=Math.min(gems.length,SHARD_SLOTS.length);
+  ctx.fillStyle="rgba(180,160,220,0.45)";
+  ctx.font=`${Math.round(sR*0.10)}px 'Courier New',monospace`;
+  ctx.textAlign="center";
+  ctx.fillText(`${filled} / ${SHARD_SLOTS.length}`,sCX,sCY+sR+sR*0.16);
+
+  // ── 우측 보석 목록 (가로일 때) ────────────────────────────────────────────
+  if(isLS&&gems.length>0){
+    const pX=cw*0.60,pY=ch*0.12,pW=cw*0.36,pH=ch*0.78;
+    ctx.fillStyle="rgba(255,255,255,0.03)";
+    ctx.strokeStyle="rgba(120,100,180,0.15)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.roundRect(pX,pY,pW,pH,10);ctx.fill();ctx.stroke();
+    ctx.fillStyle="rgba(180,160,220,0.5)";
+    ctx.font=`${Math.round(pH*0.048)}px 'Courier New',monospace`;
+    ctx.textAlign="left";ctx.fillText("수집한 보석",pX+14,pY+pH*0.07);
+    const cols=4,gS=Math.min(pW/5.2,pH/6,30);
+    const gXs=(pW-20)/cols,gYs=gS*2.4;
+    const startX=pX+12,startY=pY+pH*0.14;
+    gems.forEach((g,i)=>{
+      const col=i%cols,row=Math.floor(i/cols);
+      const gx=startX+col*gXs+gXs/2,gy=startY+row*gYs+gS;
+      if(gy+gS>pY+pH-10)return;
+      const sh=Math.sin(time*1.3+i*0.8)*0.15+0.85;
+      ctx.save();ctx.translate(gx,gy);
+      ctx.beginPath();
+      for(let j=0;j<6;j++){const a=(j/6)*Math.PI*2-Math.PI/6;j===0?ctx.moveTo(Math.cos(a)*gS,Math.sin(a)*gS):ctx.lineTo(Math.cos(a)*gS,Math.sin(a)*gS);}
+      ctx.closePath();
+      const gg=ctx.createRadialGradient(-gS*0.3,-gS*0.3,0,0,0,gS);
+      gg.addColorStop(0,`hsla(${g.hue},90%,88%,${sh})`);
+      gg.addColorStop(0.5,`hsla(${g.hue},80%,58%,${sh})`);
+      gg.addColorStop(1,`hsla(${g.hue},70%,30%,${sh*0.8})`);
+      ctx.fillStyle=gg;ctx.fill();
+      ctx.strokeStyle=`hsla(${g.hue},70%,88%,0.5)`;ctx.lineWidth=0.7;ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle=`hsla(${g.hue},65%,75%,0.7)`;
+      ctx.font=`${Math.round(gS*0.40)}px 'Courier New',monospace`;
+      ctx.textAlign="center";ctx.fillText(g.name,gx,gy+gS*1.55);
+    });
+  }
+
+  // 닫기 힌트
+  ctx.fillStyle="rgba(120,110,160,0.35)";
+  ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;
+  ctx.textAlign="center";
+  ctx.fillText("탭하면 닫힘",sCX,sCY+sR+(isLS?sR*0.30:sR*0.34));
+
+  ctx.globalAlpha=1;
+}
 function drawPuzzleBoard(ctx,cw,ch,state,time,alpha){
   if(alpha<0.01)return;
   ctx.globalAlpha=alpha;
@@ -687,16 +865,18 @@ export default function SphereV9(){
           s.vel.x=Math.cos(newA)*SPHERE_SPEED;s.vel.y=Math.sin(newA)*SPHERE_SPEED;
           s.sphere.lx+=s.vel.x;s.sphere.ly+=s.vel.y;
 
-          // 공간의 끝 — 부드러운 저항 (튕김/이펙트 없음)
-          const EDGE = 280; // 끝부분 저항 구간 너비
-          const edgeR=(v,lo,hi)=>{
-            if(v<lo+EDGE) return (1-(lo+EDGE-v)/EDGE)*0.18+0.82;
-            if(v>hi-EDGE) return (1-(v-(hi-EDGE))/EDGE)*0.18+0.82;
-            return 1;
+          // 공간의 끝 저항 — 연결 없는 방향만
+          const connL=s.placedMap.has(pk(s.sphere.col-1,s.sphere.row));
+          const connR=s.placedMap.has(pk(s.sphere.col+1,s.sphere.row));
+          const connT=s.placedMap.has(pk(s.sphere.col,s.sphere.row-1));
+          const connB=s.placedMap.has(pk(s.sphere.col,s.sphere.row+1));
+          const EDGE=320;
+          const resist=(dist,connected)=>{
+            if(connected||dist>EDGE)return 1;
+            return(dist/EDGE)*0.18+0.82;
           };
-          const rx=edgeR(s.sphere.lx,0,PIECE_W);
-          const ry=edgeR(s.sphere.ly,0,PIECE_H);
-          s.vel.x*=rx; s.vel.y*=ry;
+          s.vel.x*=resist(s.sphere.lx,connL)*resist(PIECE_W-s.sphere.lx,connR);
+          s.vel.y*=resist(s.sphere.ly,connT)*resist(PIECE_H-s.sphere.ly,connB);
 
           // 벽 처리 — 연결된 방향은 통과, 아니면 클램프 + 안쪽으로 부드럽게 유도
           if(s.sphere.lx>PIECE_W){
@@ -880,31 +1060,21 @@ export default function SphereV9(){
       gNeb.addColorStop(0,`rgba(${bg0+12},${bg1+4},${bg2+25},0.5)`);gNeb.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=gNeb;ctx.fillRect(0,0,cw,ch);
 
-      // 공간의 끝 — 보이드(공허) + 연결된 방향 빛
+      // 공간의 끝 — 연결 없는 방향만 공허로 어두워짐
       const lx=s.sphere.lx,ly=s.sphere.ly;
-      const VOID_MARGIN=2200,LIGHT_MARGIN=2800;
-      const connL=s.placedMap.has(pk(s.sphere.col-1,s.sphere.row));
-      const connR=s.placedMap.has(pk(s.sphere.col+1,s.sphere.row));
-      const connT=s.placedMap.has(pk(s.sphere.col,s.sphere.row-1));
-      const connB=s.placedMap.has(pk(s.sphere.col,s.sphere.row+1));
-      const dL=connL?VOID_MARGIN:lx,dR=connR?VOID_MARGIN:PIECE_W-lx;
-      const dT=connT?VOID_MARGIN:ly,dB=connB?VOID_MARGIN:PIECE_H-ly;
-      const voidness=Math.max(0,1-Math.min(dL,dR,dT,dB)/VOID_MARGIN)*0.85;
+      const VOID_MARGIN=2200;
+      const vConnL=s.placedMap.has(pk(s.sphere.col-1,s.sphere.row));
+      const vConnR=s.placedMap.has(pk(s.sphere.col+1,s.sphere.row));
+      const vConnT=s.placedMap.has(pk(s.sphere.col,s.sphere.row-1));
+      const vConnB=s.placedMap.has(pk(s.sphere.col,s.sphere.row+1));
+      const dL=vConnL?VOID_MARGIN:lx,dR=vConnR?VOID_MARGIN:PIECE_W-lx;
+      const dT=vConnT?VOID_MARGIN:ly,dB=vConnB?VOID_MARGIN:PIECE_H-ly;
+      const voidness=Math.max(0,1-Math.min(dL,dR,dT,dB)/VOID_MARGIN)*0.82;
       if(voidness>0.01){
         const vg=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*0.2,cw/2,ch/2,Math.max(cw,ch)*0.8);
         vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,`rgba(0,0,3,${voidness})`);
         ctx.fillStyle=vg;ctx.fillRect(0,0,cw,ch);
       }
-      // 연결된 방향에서 스며드는 빛
-      const lightFrom=(conn,dist,ex,ey,dx,dy)=>{
-        if(!conn)return;
-        const t2=Math.max(0,1-dist/LIGHT_MARGIN);if(t2<0.01)return;
-        const g2=ctx.createLinearGradient(ex-dx*200,ey-dy*200,ex,ey);
-        g2.addColorStop(0,"rgba(0,0,0,0)");g2.addColorStop(1,`rgba(160,140,255,${t2*0.14})`);
-        ctx.fillStyle=g2;ctx.fillRect(0,0,cw,ch);
-      };
-      lightFrom(connL,lx,0,ch/2,-1,0);lightFrom(connR,PIECE_W-lx,cw,ch/2,1,0);
-      lightFrom(connT,ly,cw/2,0,0,-1);lightFrom(connB,PIECE_H-ly,cw/2,ch,0,1);
       s.placedMap.forEach((_,k)=>{
         const [c,r]=k.split(",").map(Number);
         const ox=c*PIECE_W,oy=r*PIECE_H;
@@ -1074,6 +1244,10 @@ export default function SphereV9(){
       // 퍼즐 판 오버레이
       if(s.puzzleAlpha>0.01)
         drawPuzzleBoard(ctx,cw,ch,{placedMap:s.placedMap,currentPieceKey:s.currentPieceKey,inventoryPieces:s.inventoryPieces,selectedInventoryId:s.selectedInventoryId,puzzleFragments:s.puzzleFragments},s.time,s.puzzleAlpha);
+
+      // 구체 디테일 오버레이
+      if(s.detailAlpha>0.01)
+        drawSphereDetail(ctx,cw,ch,s.collectedGems,s.time,s.detailAlpha);
 
       animRef.current=requestAnimationFrame(draw);
     };
