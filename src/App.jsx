@@ -11,14 +11,14 @@ const SINGLE_TAP_DELAY = 290;
 const DRAG_THRESHOLD = 12;
 const STEER_STRENGTH = 0.032;
 const ZOOM_NORMAL = 1.0;
-const ZOOM_OUT = 0.12;          // 조각 전체가 보이는 배율
+const ZOOM_OUT = 0.12;
 const PARTICLE_COUNT = 180;
 const NODES_PER_PIECE = 100;
 const GEM_CHANCE = 0.09;
-const PIECE_NODE_CHANCE = 0.03;  // 조각 노드: 보석보다 드물게
+const PIECE_NODE_CHANCE = 0.03;
 const ORBIT_COLLECT_MS = 3800;
 const MAX_GEM_FRAGS = 14;
-const NODES_PER_PUZZLE_FRAG = 10; // 퍼즐 조각 1개 획득에 필요한 노드 방문
+const NODES_PER_PUZZLE_FRAG = 10;
 
 const GEM_HUES  = [0,22,42,165,185,260,295,325];
 const GEM_NAMES = ["루비","앰버","토파즈","에메랄드","아쿠아","사파이어","자수정","로즈쿼츠"];
@@ -32,7 +32,6 @@ const THEMES = [
   {id:4, name:"황금",  bg:[10,8,2],    nodeHue:48,  partHue:45,  boardColor:"rgba(255,210,60,0.8)"},
 ];
 
-// ─── 조각 키 유틸 ─────────────────────────────────────────────────────────────
 const pk = (col,row) => `${col},${row}`;
 const DIRS = [
   {dc:1, dr:0, wall:"right",  entry:"left",   ax:"x", sign:1},
@@ -43,14 +42,14 @@ const DIRS = [
 
 function rand(a,b){return a+Math.random()*(b-a);}
 
-// ─── 노드 생성 (조각별) ───────────────────────────────────────────────────────
+// ─── 노드 생성 ────────────────────────────────────────────────────────────────
 function generatePieceNodes(themeId){
   return Array.from({length:NODES_PER_PIECE},(_,i)=>{
     const roll=Math.random();
     const isPiece=roll<PIECE_NODE_CHANCE;
     const isGem=!isPiece&&roll<PIECE_NODE_CHANCE+GEM_CHANCE;
     const gemIdx=Math.floor(Math.random()*GEM_HUES.length);
-    const pieceTheme=Math.floor(Math.random()*THEMES.length); // 어떤 테마의 조각을 줄지
+    const pieceTheme=Math.floor(Math.random()*THEMES.length);
     return{
       id:`${themeId}-${i}-${Math.random().toString(36).slice(2,6)}`,
       x:rand(180,PIECE_W-180),y:rand(180,PIECE_H-180),
@@ -82,7 +81,6 @@ function spawnSat(node){
     soundPlayed:false,hapticPlayed:false};
 }
 
-// ─── 퍼즐 인벤토리 아이템 (흩어진 위치 포함) ─────────────────────────────────
 function makeInventoryPiece(themeId, idx){
   return{id:`inv-${idx}-${Math.random().toString(36).slice(2,6)}`,themeId,
     scatterAngle: (idx/8)*Math.PI*2 + rand(-0.3,0.3),
@@ -91,16 +89,7 @@ function makeInventoryPiece(themeId, idx){
   };
 }
 
-// ─── 초기 인벤토리 ─────────────────────────────────────────────────────────────
-function makeInitialInventory(){
-  return[
-    makeInventoryPiece(1,0), makeInventoryPiece(2,1), makeInventoryPiece(3,2),
-    makeInventoryPiece(4,3), makeInventoryPiece(0,4), makeInventoryPiece(1,5),
-    makeInventoryPiece(2,6), makeInventoryPiece(3,7),
-  ];
-}
-
-// ─── 오디오/햅틱 (간략) ───────────────────────────────────────────────────────
+// ─── 오디오/햅틱 ─────────────────────────────────────────────────────────────
 const PENTATONIC=[130.81,155.56,174.61,196,220,261.63,311.13,349.23,392,440,523.25,622.25,698.46,783.99,880];
 function hashFreq(id){let h=5381;for(let i=0;i<id.length;i++)h=((h<<5)+h+id.charCodeAt(i))|0;return PENTATONIC[Math.abs(h)%PENTATONIC.length];}
 
@@ -124,22 +113,254 @@ class HapticEngine{
 }
 
 class AudioEngine{
-  constructor(){this.ctx=null;this.master=null;this.reverbIn=null;this.nodeOscs=new Map();this.orbitNodes=null;this.pressNodes=null;this.muted=false;this.ready=false;}
-  init(){if(this.ready){this.ctx.resume();return;}this.ctx=new(window.AudioContext||window.webkitAudioContext)();this.master=this.ctx.createGain();this.master.gain.value=0.6;this.master.connect(this.ctx.destination);this._rev();this._amb();this.ready=true;}
-  _rev(){const d=this.ctx.createDelay(1);d.delayTime.value=0.29;const fb=this.ctx.createGain();fb.gain.value=0.40;const lp=this.ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=4200;const wet=this.ctx.createGain();wet.gain.value=0.20;const snd=this.ctx.createGain();snd.connect(d);d.connect(lp);lp.connect(fb);fb.connect(d);d.connect(wet);wet.connect(this.master);snd.connect(this.master);this.reverbIn=snd;}
-  _amb(){const g=this.ctx.createGain();g.gain.value=0.048;g.connect(this.master);[{f:55,t:"sine",v:.60},{f:55.18,t:"sine",v:.55},{f:82.41,t:"sine",v:.28},{f:110,t:"triangle",v:.10}].forEach(({f,t,v})=>{const o=this.ctx.createOscillator(),og=this.ctx.createGain();o.type=t;o.frequency.value=f;og.gain.value=v;o.connect(og);og.connect(g);o.start();});}
-  setMuted(v){this.muted=v;if(this.master)this.master.gain.setTargetAtTime(v?0:0.6,this.ctx.currentTime,0.4);}
-  tone(id,bri){if(!this.ready)return;const tgt=Math.min(bri*0.085,0.085);if(!this.nodeOscs.has(id)){if(tgt<0.004||this.nodeOscs.size>=8)return;const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.value=hashFreq(id);g.gain.value=0;o.connect(g);g.connect(this.reverbIn);o.start();this.nodeOscs.set(id,{osc:o,gain:g});}const{gain}=this.nodeOscs.get(id);gain.gain.setTargetAtTime(tgt,this.ctx.currentTime,0.35);if(tgt<0.002){const e=this.nodeOscs.get(id);this.nodeOscs.delete(id);e.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.5);setTimeout(()=>{try{e.osc.stop();}catch(_){}},2500);}}
-  satSpawn(nodeId){if(!this.ready||this.muted)return;const f=hashFreq(nodeId)*2,o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.setValueAtTime(f*1.18,this.ctx.currentTime);o.frequency.exponentialRampToValueAtTime(f,this.ctx.currentTime+0.1);g.gain.setValueAtTime(0.075,this.ctx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.55);o.connect(g);g.connect(this.reverbIn);o.start();o.stop(this.ctx.currentTime+0.6);}
-  gemCollect(hue){if(!this.ready)return;const bf=392+(hue/360)*300;[1,1.25,1.5,2].forEach((m,i)=>{const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.value=bf*m;const t=this.ctx.currentTime+i*0.08;g.gain.setValueAtTime(0.08-i*0.015,t);g.gain.exponentialRampToValueAtTime(0.001,t+1.2);o.connect(g);g.connect(this.reverbIn);o.start(t);o.stop(t+1.3);});}
-  piecePlace(){if(!this.ready)return;[261.63,329.63,392,523.25,659.25,783.99].forEach((f,i)=>{const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.value=f;const t=this.ctx.currentTime+i*0.09;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.10,t+0.04);g.gain.exponentialRampToValueAtTime(0.001,t+1.4);o.connect(g);g.connect(this.reverbIn);o.start(t);o.stop(t+1.5);});}
-  startOrbit(sp){if(!this.ready||this.orbitNodes)return;const o=this.ctx.createOscillator(),lfo=this.ctx.createOscillator(),lg=this.ctx.createGain(),g=this.ctx.createGain();o.type="sine";o.frequency.value=82.41;lfo.frequency.value=Math.min(Math.max(Math.abs(sp)*25,0.35),4);lg.gain.value=0.04;g.gain.value=0;g.gain.setTargetAtTime(0.08,this.ctx.currentTime,0.7);lfo.connect(lg);lg.connect(g.gain);o.connect(g);g.connect(this.reverbIn);o.start();lfo.start();this.orbitNodes={osc:o,lfo,gain:g};}
-  stopOrbit(){if(!this.orbitNodes)return;const n=this.orbitNodes;this.orbitNodes=null;n.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.45);setTimeout(()=>{try{n.osc.stop();n.lfo.stop();}catch(_){}},2200);}
-  _sw(f0,f1,dur){if(!this.ready||this.muted)return;const n=Math.floor(this.ctx.sampleRate*dur),buf=this.ctx.createBuffer(1,n,this.ctx.sampleRate),d=buf.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;const src=this.ctx.createBufferSource();src.buffer=buf;const bpf=this.ctx.createBiquadFilter();bpf.type="bandpass";bpf.Q.value=4;bpf.frequency.setValueAtTime(f0,this.ctx.currentTime);bpf.frequency.exponentialRampToValueAtTime(f1,this.ctx.currentTime+dur);const g=this.ctx.createGain();g.gain.setValueAtTime(0.14,this.ctx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+dur);src.connect(bpf);bpf.connect(g);g.connect(this.master);src.start();}
-  zoomOut(){this._sw(600,160,0.5);}zoomIn(){this._sw(180,720,0.32);}
-  pressCharge(prog){if(!this.ready||this.muted)return;if(prog>0.02&&!this.pressNodes){const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.value=220;g.gain.value=0.01;o.connect(g);g.connect(this.master);o.start();this.pressNodes={osc:o,gain:g};}if(this.pressNodes){this.pressNodes.osc.frequency.setTargetAtTime(220+prog*prog*680,this.ctx.currentTime,0.04);this.pressNodes.gain.gain.setTargetAtTime(0.01+prog*0.06,this.ctx.currentTime,0.04);}}
-  releasePressCharge(done){if(!this.pressNodes)return;const n=this.pressNodes;this.pressNodes=null;n.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.08);setTimeout(()=>{try{n.osc.stop();}catch(_){}},600);if(done){const o=this.ctx.createOscillator(),g=this.ctx.createGain();o.type="sine";o.frequency.value=880;g.gain.setValueAtTime(0.09,this.ctx.currentTime);g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.65);o.connect(g);g.connect(this.reverbIn);o.start();o.stop(this.ctx.currentTime+0.7);}}
-  destroy(){if(this.ctx)this.ctx.close();}
+  constructor(){
+    this.ctx=null;this.master=null;this.reverbIn=null;
+    this.nodeOscs=new Map();this.orbitNodes=null;this.pressNodes=null;
+    this.muted=false;this.ready=false;
+    // ★ 테마 앰비언트
+    this.themeAmbNodes=null;this.themeAmbId=-1;
+  }
+
+  init(){
+    if(this.ready){this.ctx.resume();return;}
+    this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+    this.master=this.ctx.createGain();this.master.gain.value=0.6;
+    this.master.connect(this.ctx.destination);
+    this._rev();this._baseAmb();this.ready=true;
+  }
+
+  _rev(){
+    const d=this.ctx.createDelay(1);d.delayTime.value=0.29;
+    const fb=this.ctx.createGain();fb.gain.value=0.40;
+    const lp=this.ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=4200;
+    const wet=this.ctx.createGain();wet.gain.value=0.20;
+    const snd=this.ctx.createGain();
+    snd.connect(d);d.connect(lp);lp.connect(fb);fb.connect(d);
+    d.connect(wet);wet.connect(this.master);snd.connect(this.master);
+    this.reverbIn=snd;
+  }
+
+  _baseAmb(){
+    // 아주 낮은 공통 드론 (테마 앰비언트와 레이어)
+    const g=this.ctx.createGain();g.gain.value=0.028;g.connect(this.master);
+    [{f:55,t:"sine",v:.60},{f:55.18,t:"sine",v:.55}].forEach(({f,t,v})=>{
+      const o=this.ctx.createOscillator(),og=this.ctx.createGain();
+      o.type=t;o.frequency.value=f;og.gain.value=v;o.connect(og);og.connect(g);o.start();
+    });
+  }
+
+  setMuted(v){
+    this.muted=v;
+    if(this.master)this.master.gain.setTargetAtTime(v?0:0.6,this.ctx.currentTime,0.4);
+  }
+
+  // ─── 테마 앰비언트 ────────────────────────────────────────────────────────
+  startThemeAmb(themeId){
+    if(!this.ready||this.themeAmbId===themeId)return;
+    this.stopThemeAmb();
+    this.themeAmbId=themeId;
+    this.themeAmbNodes=this._makeThemeAmb(themeId);
+  }
+
+  stopThemeAmb(){
+    if(!this.themeAmbNodes)return;
+    const t=this.ctx.currentTime;
+    this.themeAmbNodes.forEach(n=>{
+      if(n.gain)n.gain.gain.setTargetAtTime(0,t,1.4);
+      setTimeout(()=>{try{n.src?.stop();n.osc?.stop();}catch(_){}},6000);
+    });
+    this.themeAmbNodes=null;this.themeAmbId=-1;
+  }
+
+  _makeThemeAmb(themeId){
+    // 테마별 파라미터 — 모두 편안하고 부드러운 앰비언트 백색 노이즈 계열
+    const CFG=[
+      // 0 암흑: 우주 심연 — 매우 낮은 드론 + 희박한 고역 노이즈, 느린 LFO
+      {nf:70,  nq:0.7, nl:0.036, lfoR:0.07, lfoD:0.010,
+       oscs:[{f:41,   t:"sine",    v:0.055},{f:55.18,t:"sine",v:0.035},{f:27.5, t:"sine",v:0.026}]},
+      // 1 황혼: 사막 바람 — 중역 따뜻한 노이즈 + 낮은 현악 드론
+      {nf:340, nq:1.1, nl:0.040, lfoR:0.13, lfoD:0.016,
+       oscs:[{f:110,  t:"sine",    v:0.030},{f:138.6,t:"sine",v:0.018},{f:82.4, t:"triangle",v:0.013}]},
+      // 2 심해: 수중 — 저역 구르는 소리 + 느린 파동
+      {nf:110, nq:1.4, nl:0.044, lfoR:0.055,lfoD:0.020,
+       oscs:[{f:55,   t:"sine",    v:0.062},{f:73.4, t:"sine",v:0.028},{f:36.7, t:"sine",v:0.022}]},
+      // 3 새벽: 여명 공기 — 높은 필터 노이즈 + 가벼운 드론
+      {nf:680, nq:1.8, nl:0.026, lfoR:0.19, lfoD:0.012,
+       oscs:[{f:220,  t:"sine",    v:0.020},{f:293.7,t:"sine",v:0.012},{f:164.8,t:"sine",v:0.014}]},
+      // 4 황금: 따뜻한 빛 — 중고역 노이즈 + 따뜻한 화음
+      {nf:460, nq:1.6, nl:0.031, lfoR:0.16, lfoD:0.014,
+       oscs:[{f:164.8,t:"sine",    v:0.034},{f:220,  t:"sine",v:0.022},{f:130.8,t:"sine",v:0.018}]},
+    ];
+    const cfg=CFG[themeId]||CFG[0];
+    const nodes=[];
+
+    // ── 루핑 필터드 노이즈 버퍼 ────────────────────────────────────────────
+    const dur=4, rate=this.ctx.sampleRate;
+    const buf=this.ctx.createBuffer(1,rate*dur,rate);
+    const bd=buf.getChannelData(0);
+    for(let i=0;i<rate*dur;i++)bd[i]=Math.random()*2-1;
+
+    const src=this.ctx.createBufferSource();
+    src.buffer=buf;src.loop=true;
+
+    const filt=this.ctx.createBiquadFilter();
+    filt.type="bandpass";filt.frequency.value=cfg.nf;filt.Q.value=cfg.nq;
+
+    // 2차 LP로 부드럽게
+    const lp=this.ctx.createBiquadFilter();
+    lp.type="lowpass";lp.frequency.value=cfg.nf*3.5;
+
+    const nGain=this.ctx.createGain();
+    nGain.gain.value=0;
+    nGain.gain.setTargetAtTime(cfg.nl,this.ctx.currentTime,2.2);
+
+    // LFO — 노이즈 레벨 천천히 출렁임
+    const lfo=this.ctx.createOscillator();
+    lfo.type="sine";lfo.frequency.value=cfg.lfoR;
+    const lfoG=this.ctx.createGain();
+    lfoG.gain.value=cfg.lfoD;
+    lfo.connect(lfoG);lfoG.connect(nGain.gain);
+
+    src.connect(filt);filt.connect(lp);lp.connect(nGain);
+    nGain.connect(this.master);
+    src.start();lfo.start();
+    nodes.push({src,gain:nGain});
+    nodes.push({osc:lfo,gain:lfoG});
+
+    // ── 드론 오실레이터들 (리버브로 공간감) ─────────────────────────────────
+    cfg.oscs.forEach(({f,t,v})=>{
+      const osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+      osc.type=t;osc.frequency.value=f;
+      g.gain.value=0;
+      g.gain.setTargetAtTime(v,this.ctx.currentTime,2.8);
+      osc.connect(g);g.connect(this.reverbIn);
+      osc.start();
+      nodes.push({osc,gain:g});
+    });
+
+    return nodes;
+  }
+
+  // ─── 기존 메서드들 ────────────────────────────────────────────────────────
+  tone(id,bri){
+    if(!this.ready)return;
+    const tgt=Math.min(bri*0.085,0.085);
+    if(!this.nodeOscs.has(id)){
+      if(tgt<0.004||this.nodeOscs.size>=8)return;
+      const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+      o.type="sine";o.frequency.value=hashFreq(id);g.gain.value=0;
+      o.connect(g);g.connect(this.reverbIn);o.start();
+      this.nodeOscs.set(id,{osc:o,gain:g});
+    }
+    const{gain}=this.nodeOscs.get(id);
+    gain.gain.setTargetAtTime(tgt,this.ctx.currentTime,0.35);
+    if(tgt<0.002){
+      const e=this.nodeOscs.get(id);this.nodeOscs.delete(id);
+      e.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.5);
+      setTimeout(()=>{try{e.osc.stop();}catch(_){}},2500);
+    }
+  }
+
+  satSpawn(nodeId){
+    if(!this.ready||this.muted)return;
+    const f=hashFreq(nodeId)*2,o=this.ctx.createOscillator(),g=this.ctx.createGain();
+    o.type="sine";
+    o.frequency.setValueAtTime(f*1.18,this.ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(f,this.ctx.currentTime+0.1);
+    g.gain.setValueAtTime(0.075,this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.55);
+    o.connect(g);g.connect(this.reverbIn);o.start();o.stop(this.ctx.currentTime+0.6);
+  }
+
+  gemCollect(hue){
+    if(!this.ready)return;
+    const bf=392+(hue/360)*300;
+    [1,1.25,1.5,2].forEach((m,i)=>{
+      const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+      o.type="sine";o.frequency.value=bf*m;
+      const t=this.ctx.currentTime+i*0.08;
+      g.gain.setValueAtTime(0.08-i*0.015,t);
+      g.gain.exponentialRampToValueAtTime(0.001,t+1.2);
+      o.connect(g);g.connect(this.reverbIn);o.start(t);o.stop(t+1.3);
+    });
+  }
+
+  piecePlace(){
+    if(!this.ready)return;
+    [261.63,329.63,392,523.25,659.25,783.99].forEach((f,i)=>{
+      const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+      o.type="sine";o.frequency.value=f;
+      const t=this.ctx.currentTime+i*0.09;
+      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.10,t+0.04);
+      g.gain.exponentialRampToValueAtTime(0.001,t+1.4);
+      o.connect(g);g.connect(this.reverbIn);o.start(t);o.stop(t+1.5);
+    });
+  }
+
+  startOrbit(sp){
+    if(!this.ready||this.orbitNodes)return;
+    const o=this.ctx.createOscillator(),lfo=this.ctx.createOscillator(),
+          lg=this.ctx.createGain(),g=this.ctx.createGain();
+    o.type="sine";o.frequency.value=82.41;
+    lfo.frequency.value=Math.min(Math.max(Math.abs(sp)*25,0.35),4);
+    lg.gain.value=0.04;g.gain.value=0;
+    g.gain.setTargetAtTime(0.08,this.ctx.currentTime,0.7);
+    lfo.connect(lg);lg.connect(g.gain);o.connect(g);g.connect(this.reverbIn);
+    o.start();lfo.start();this.orbitNodes={osc:o,lfo,gain:g};
+  }
+
+  stopOrbit(){
+    if(!this.orbitNodes)return;
+    const n=this.orbitNodes;this.orbitNodes=null;
+    n.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.45);
+    setTimeout(()=>{try{n.osc.stop();n.lfo.stop();}catch(_){}},2200);
+  }
+
+  _sw(f0,f1,dur){
+    if(!this.ready||this.muted)return;
+    const n=Math.floor(this.ctx.sampleRate*dur),buf=this.ctx.createBuffer(1,n,this.ctx.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+    const src=this.ctx.createBufferSource();src.buffer=buf;
+    const bpf=this.ctx.createBiquadFilter();bpf.type="bandpass";bpf.Q.value=4;
+    bpf.frequency.setValueAtTime(f0,this.ctx.currentTime);
+    bpf.frequency.exponentialRampToValueAtTime(f1,this.ctx.currentTime+dur);
+    const g=this.ctx.createGain();
+    g.gain.setValueAtTime(0.14,this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+dur);
+    src.connect(bpf);bpf.connect(g);g.connect(this.master);src.start();
+  }
+
+  zoomOut(){this._sw(600,160,0.5);}
+  zoomIn(){this._sw(180,720,0.32);}
+
+  pressCharge(prog){
+    if(!this.ready||this.muted)return;
+    if(prog>0.02&&!this.pressNodes){
+      const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+      o.type="sine";o.frequency.value=220;g.gain.value=0.01;
+      o.connect(g);g.connect(this.master);o.start();this.pressNodes={osc:o,gain:g};
+    }
+    if(this.pressNodes){
+      this.pressNodes.osc.frequency.setTargetAtTime(220+prog*prog*680,this.ctx.currentTime,0.04);
+      this.pressNodes.gain.gain.setTargetAtTime(0.01+prog*0.06,this.ctx.currentTime,0.04);
+    }
+  }
+
+  releasePressCharge(done){
+    if(!this.pressNodes)return;
+    const n=this.pressNodes;this.pressNodes=null;
+    n.gain.gain.setTargetAtTime(0,this.ctx.currentTime,0.08);
+    setTimeout(()=>{try{n.osc.stop();}catch(_){}},600);
+    if(done){
+      const o=this.ctx.createOscillator(),g=this.ctx.createGain();
+      o.type="sine";o.frequency.value=880;
+      g.gain.setValueAtTime(0.09,this.ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.65);
+      o.connect(g);g.connect(this.reverbIn);o.start();o.stop(this.ctx.currentTime+0.7);
+    }
+  }
+
+  destroy(){this.stopThemeAmb();if(this.ctx)this.ctx.close();}
 }
 
 // ─── 보석 노드 렌더 ───────────────────────────────────────────────────────────
@@ -149,7 +370,9 @@ function drawGem(ctx,sx,sy,size,hue,bri,time,spark,zoom){
   glow.addColorStop(0,`hsla(${hue},90%,65%,${bri*0.4})`);glow.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle=glow;ctx.beginPath();ctx.arc(sx,sy,sz*6,0,Math.PI*2);ctx.fill();
   ctx.save();ctx.translate(sx,sy);
-  ctx.beginPath();for(let i=0;i<6;i++){const a=(i/6)*Math.PI*2-Math.PI/6;i===0?ctx.moveTo(Math.cos(a)*sz,Math.sin(a)*sz):ctx.lineTo(Math.cos(a)*sz,Math.sin(a)*sz);}ctx.closePath();
+  ctx.beginPath();
+  for(let i=0;i<6;i++){const a=(i/6)*Math.PI*2-Math.PI/6;i===0?ctx.moveTo(Math.cos(a)*sz,Math.sin(a)*sz):ctx.lineTo(Math.cos(a)*sz,Math.sin(a)*sz);}
+  ctx.closePath();
   const gg=ctx.createRadialGradient(-sz*0.3,-sz*0.35,0,sz*0.1,sz*0.1,sz*1.2);
   gg.addColorStop(0,`hsla(${hue},90%,88%,${bri})`);gg.addColorStop(0.5,`hsla(${hue},80%,60%,${bri})`);gg.addColorStop(1,`hsla(${hue},70%,32%,${bri*0.8})`);
   ctx.fillStyle=gg;ctx.fill();
@@ -165,362 +388,228 @@ function drawGem(ctx,sx,sy,size,hue,bri,time,spark,zoom){
   }
 }
 
-// ─── 파편 슬롯 레이아웃 (정규화 좌표, 반지름 1.0 기준) ───────────────────────
-// 구 표면을 깨진 유리처럼 덮는 14개 파편 슬롯
-const SHARD_SLOTS = [
-  // 중앙 상단부터 시계방향으로 채워지는 느낌
-  [[-.08,-.72],[.28,-.55],[.08,-.28],[-.32,-.38]],          // 0: 상단 좌
-  [[.08,-.72],[.52,-.60],[.28,-.55]],                        // 1: 상단 중
-  [[.28,-.55],[.52,-.60],[.68,-.28],[.42,-.18]],             // 2: 상단 우
-  [[.08,-.28],[.28,-.55],[.42,-.18],[.22,.08],[-.08,.02]],   // 3: 중앙 우상
-  [[.42,-.18],[.68,-.28],[.72,.18],[.48,.32]],               // 4: 우측 상
-  [[.48,.32],[.72,.18],[.62,.52],[.32,.58]],                 // 5: 우측 하
-  [[.22,.08],[.48,.32],[.32,.58],[.08,.62],[-.02,.28]],      // 6: 중앙 우하
-  [[-.02,.28],[.08,.62],[-.18,.72],[-.38,.52]],              // 7: 하단 우
-  [[-.38,.52],[-.18,.72],[-.48,.62],[-.58,.32]],             // 8: 하단 좌
-  [[-.32,.08],[-.02,.28],[-.38,.52],[-.58,.32],[-.62,.02]],  // 9: 중앙 좌하
-  [[-.68,.18],[-.62,.02],[-.58,.32]],                        // 10: 좌측 하
-  [[-.72,-.22],[-.68,.18],[-.62,.02],[-.42,-.18]],           // 11: 좌측 상
-  [[-.42,-.18],[-.62,.02],[-.32,.08],[-.08,.02],[-.12,-.32]],// 12: 중앙 좌상
-  [[-.32,-.38],[-.08,-.28],[-.12,-.32],[-.42,-.18],[-.52,-.52]],// 13: 상단 좌하
-];
+// ─── 시드 기반 난수 생성기 ─────────────────────────────────────────────────────
+function seededRng(seed){
+  let s=seed|0;
+  return()=>{s=Math.imul(s^(s>>>16),0x45d9f3b);s=Math.imul(s^(s>>>16),0x45d9f3b);s^=s>>>16;return(s>>>0)/0xffffffff;};
+}
 
-// ─── 구체 디테일 뷰 — 검은 바둑돌 + 보석 파편 ────────────────────────────────
-function drawSphereDetail(ctx,cw,ch,gems,time,alpha){
+// ─── 랜덤 균열 패턴 생성 ─────────────────────────────────────────────────────
+function generateShatterPattern(seed){
+  const rng=seededRng(seed);
+  const shards=[];
+  const numCracks=Math.floor(rng()*6)+5;
+  const angles=[];
+  for(let i=0;i<numCracks;i++) angles.push(rng()*Math.PI*2);
+  angles.sort((a,b)=>a-b);
+  for(let i=0;i<angles.length;i++){
+    const a1=angles[i], a2=angles[(i+1)%angles.length];
+    const span=((a2-a1)+Math.PI*2)%(Math.PI*2);
+    if(span>0.38&&rng()<0.68){
+      const splitR=0.28+rng()*0.40;
+      shards.push(buildCleanWedge(a1,a2,0,splitR,rng));
+      shards.push(buildCleanWedge(a1,a2,splitR,0.97,rng));
+    }else{
+      shards.push(buildCleanWedge(a1,a2,0,0.97,rng));
+    }
+  }
+  return shards;
+}
+
+function buildCleanWedge(a1,a2,r1,r2,rng){
+  const pts=[];
+  const span=((a2-a1)+Math.PI*2)%(Math.PI*2);
+  const steps=Math.max(3,Math.ceil(span/(Math.PI/5)));
+  if(r1<0.01){
+    pts.push([0,0]);
+  }else{
+    for(let i=0;i<=steps;i++){const a=a1+span*i/steps;pts.push([Math.cos(a)*r1,Math.sin(a)*r1]);}
+  }
+  for(let i=steps;i>=0;i--){
+    const a=a1+span*i/steps,rv=r2*(1+(rng()-0.5)*0.035);
+    pts.push([Math.cos(a)*rv,Math.sin(a)*rv]);
+  }
+  return pts;
+}
+
+// ─── 구체 디테일 뷰 ───────────────────────────────────────────────────────────
+function drawSphereDetail(ctx,cw,ch,gems,shards,shatterPhase,shatterT,time,alpha){
   if(alpha<0.01)return;
   ctx.globalAlpha=alpha;
-
-  // 배경: 짙은 어둠
   ctx.fillStyle=`rgba(4,3,10,${alpha*0.96})`;ctx.fillRect(0,0,cw,ch);
-
   const isLS=cw>ch;
   const sR=Math.round(isLS?Math.min(ch*0.38,cw*0.26):Math.min(cw*0.44,ch*0.30));
   const sCX=Math.round(isLS?cw*0.32:cw*0.50);
   const sCY=Math.round(isLS?ch*0.50:ch*0.40);
-
-  // ── 바깥 글로우 ────────────────────────────────────────────────────────────
   const outerGlow=ctx.createRadialGradient(sCX,sCY,sR*0.6,sCX,sCY,sR*1.55);
-  outerGlow.addColorStop(0,"rgba(80,60,140,0.0)");
-  outerGlow.addColorStop(0.5,`rgba(60,40,110,${0.12*alpha})`);
-  outerGlow.addColorStop(1,"rgba(0,0,0,0)");
+  outerGlow.addColorStop(0,"rgba(80,60,140,0.0)");outerGlow.addColorStop(0.5,`rgba(60,40,110,${0.12*alpha})`);outerGlow.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle=outerGlow;ctx.beginPath();ctx.arc(sCX,sCY,sR*1.55,0,Math.PI*2);ctx.fill();
-
-  // ── 검은 구 (바둑돌) ───────────────────────────────────────────────────────
-  ctx.save();
-  ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);ctx.clip();
-
-  // 구 기본 — 딥 블랙
-  const baseGrad=ctx.createRadialGradient(sCX,sCY,0,sCX,sCY,sR);
-  baseGrad.addColorStop(0,"rgb(22,18,32)");
-  baseGrad.addColorStop(0.5,"rgb(12,9,20)");
-  baseGrad.addColorStop(1,"rgb(4,3,8)");
-  ctx.fillStyle=baseGrad;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
-
-  // ── 파편 슬롯 렌더 ────────────────────────────────────────────────────────
-  SHARD_SLOTS.forEach((poly,idx)=>{
-    const gem=gems[idx];
-    const pts=poly.map(([nx,ny])=>([sCX+nx*sR,sCY+ny*sR]));
-
-    // 폴리곤 경로
-    ctx.beginPath();
-    pts.forEach(([x,y],i)=>i===0?ctx.moveTo(x,y):ctx.lineTo(x,y));
-    ctx.closePath();
-
-    if(gem){
-      // 채워진 파편 — 보석 색상 + 파세트 그라디언트
-      const cx2=pts.reduce((s,[x])=>s+x,0)/pts.length;
-      const cy2=pts.reduce((s,[,y])=>s+y,0)/pts.length;
-      const shimmer=Math.sin(time*1.8+idx*0.7)*0.12+0.88;
-
-      // 파세트 그라디언트 (빛이 좌상단에서)
-      const g=ctx.createLinearGradient(
-        cx2-sR*0.4,cy2-sR*0.4,
-        cx2+sR*0.35,cy2+sR*0.35
-      );
-      g.addColorStop(0,`hsla(${gem.hue},90%,82%,${shimmer*0.95})`);
-      g.addColorStop(0.3,`hsla(${gem.hue},80%,58%,${shimmer*0.90})`);
-      g.addColorStop(0.65,`hsla(${gem.hue},70%,35%,${shimmer*0.85})`);
-      g.addColorStop(1,`hsla(${gem.hue},60%,18%,${shimmer*0.80})`);
-      ctx.fillStyle=g;ctx.fill();
-
-      // 내부 하이라이트 (좌상단 반사)
-      const hx=cx2-sR*0.18,hy=cy2-sR*0.18;
-      const hlg=ctx.createRadialGradient(hx,hy,0,hx,hy,sR*0.28);
-      hlg.addColorStop(0,`hsla(${gem.hue},100%,96%,${shimmer*0.65})`);
-      hlg.addColorStop(1,"rgba(255,255,255,0)");
-      ctx.fillStyle=hlg;ctx.fill();
-
-      // 파편 경계선 — 샤프하게
-      ctx.strokeStyle=`hsla(${gem.hue},80%,90%,0.55)`;
-      ctx.lineWidth=0.8;ctx.stroke();
-
-      // 반짝임 (시간에 따라 랜덤하게)
-      const sparkChance=Math.sin(time*2.2+idx*1.3);
-      if(sparkChance>0.6){
-        const spx=cx2+Math.cos(time+idx)*sR*0.15;
-        const spy=cy2+Math.sin(time*1.3+idx)*sR*0.12;
-        ctx.beginPath();
-        const ss=sR*0.045*((sparkChance-0.6)/0.4);
-        ctx.moveTo(spx,spy-ss*2.5);ctx.lineTo(spx+ss*0.5,spy-ss*0.5);
-        ctx.lineTo(spx+ss*2.5,spy);ctx.lineTo(spx+ss*0.5,spy+ss*0.5);
-        ctx.lineTo(spx,spy+ss*2.5);ctx.lineTo(spx-ss*0.5,spy+ss*0.5);
-        ctx.lineTo(spx-ss*2.5,spy);ctx.lineTo(spx-ss*0.5,spy-ss*0.5);
-        ctx.closePath();
-        ctx.fillStyle=`hsla(${gem.hue},100%,98%,${(sparkChance-0.6)/0.4*0.9})`;ctx.fill();
-      }
-
-    }else{
-      // 빈 슬롯 — 구 표면에 음각된 느낌
-      ctx.fillStyle="rgba(0,0,0,0.35)";ctx.fill();
-      ctx.strokeStyle="rgba(80,70,120,0.25)";ctx.lineWidth=0.6;ctx.stroke();
-    }
-  });
-
-  // ── 구 좌상단 반사광 (바둑돌 느낌) ────────────────────────────────────────
-  const hlx=sCX-sR*0.32,hly=sCY-sR*0.30;
-  const hl=ctx.createRadialGradient(hlx,hly,0,hlx,hly,sR*0.50);
-  hl.addColorStop(0,"rgba(255,255,255,0.28)");
-  hl.addColorStop(0.4,"rgba(220,210,255,0.08)");
-  hl.addColorStop(1,"rgba(255,255,255,0)");
-  ctx.fillStyle=hl;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
-
-  // 구 아래쪽 약한 반사 (바둑돌 특유)
-  const rl=ctx.createRadialGradient(sCX+sR*0.25,sCY+sR*0.38,0,sCX+sR*0.25,sCY+sR*0.38,sR*0.28);
-  rl.addColorStop(0,"rgba(180,160,255,0.06)");rl.addColorStop(1,"rgba(0,0,0,0)");
-  ctx.fillStyle=rl;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
-
-  ctx.restore();
-
-  // 구 테두리 — 얇고 선명하게
-  ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);
-  ctx.strokeStyle="rgba(120,100,180,0.35)";ctx.lineWidth=1;ctx.stroke();
-
-  // 채운 개수 레이블
-  const filled=Math.min(gems.length,SHARD_SLOTS.length);
-  ctx.fillStyle="rgba(180,160,220,0.45)";
-  ctx.font=`${Math.round(sR*0.10)}px 'Courier New',monospace`;
-  ctx.textAlign="center";
-  ctx.fillText(`${filled} / ${SHARD_SLOTS.length}`,sCX,sCY+sR+sR*0.16);
-
-  // ── 우측 보석 목록 (가로일 때) ────────────────────────────────────────────
+  const ease=(t)=>t<0.5?2*t*t:(1-Math.pow(-2*t+2,2)/2);
+  if(shatterPhase==='whole'){drawBlackOrb(ctx,sCX,sCY,sR,0,[]);}
+  else if(shatterPhase==='crack'){drawBlackOrb(ctx,sCX,sCY,sR,ease(shatterT),shards);}
+  else if(shatterPhase==='split'){drawShardsSpread(ctx,sCX,sCY,sR,shards,ease(shatterT)*0.055,gems,time,alpha);}
+  else if(shatterPhase==='reform'){drawShardsSpread(ctx,sCX,sCY,sR,shards,(1-ease(shatterT))*0.055,gems,time,alpha);}
+  else{drawShardsSpread(ctx,sCX,sCY,sR,shards,0,gems,time,alpha);}
+  ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);ctx.strokeStyle="rgba(120,100,180,0.30)";ctx.lineWidth=1;ctx.stroke();
+  const filled=Math.min(gems.length,shards.length);
+  ctx.fillStyle="rgba(180,160,220,0.40)";ctx.font=`${Math.round(sR*0.09)}px 'Courier New',monospace`;ctx.textAlign="center";
+  ctx.fillText(`${filled} / ${shards.length}`,sCX,sCY+sR+sR*0.16);
   if(isLS&&gems.length>0){
     const pX=cw*0.60,pY=ch*0.12,pW=cw*0.36,pH=ch*0.78;
-    ctx.fillStyle="rgba(255,255,255,0.03)";
-    ctx.strokeStyle="rgba(120,100,180,0.15)";ctx.lineWidth=1;
-    ctx.beginPath();ctx.roundRect(pX,pY,pW,pH,10);ctx.fill();ctx.stroke();
-    ctx.fillStyle="rgba(180,160,220,0.5)";
-    ctx.font=`${Math.round(pH*0.048)}px 'Courier New',monospace`;
+    ctx.fillStyle="rgba(255,255,255,0.03)";ctx.strokeStyle="rgba(120,100,180,0.15)";ctx.lineWidth=1;
+    ctx.beginPath();if(ctx.roundRect)ctx.roundRect(pX,pY,pW,pH,10);else ctx.rect(pX,pY,pW,pH);ctx.fill();ctx.stroke();
+    ctx.fillStyle="rgba(180,160,220,0.5)";ctx.font=`${Math.round(pH*0.046)}px 'Courier New',monospace`;
     ctx.textAlign="left";ctx.fillText("수집한 보석",pX+14,pY+pH*0.07);
-    const cols=4,gS=Math.min(pW/5.2,pH/6,30);
-    const gXs=(pW-20)/cols,gYs=gS*2.4;
-    const startX=pX+12,startY=pY+pH*0.14;
+    const cols=4,gS=Math.min(pW/5.2,pH/6,28);const gXs=(pW-20)/cols,gYs=gS*2.4;
     gems.forEach((g,i)=>{
-      const col=i%cols,row=Math.floor(i/cols);
-      const gx=startX+col*gXs+gXs/2,gy=startY+row*gYs+gS;
+      const col=i%cols,row=Math.floor(i/cols);const gx=pX+12+col*gXs+gXs/2,gy=pY+pH*0.14+row*gYs+gS;
       if(gy+gS>pY+pH-10)return;
       const sh=Math.sin(time*1.3+i*0.8)*0.15+0.85;
       ctx.save();ctx.translate(gx,gy);
-      ctx.beginPath();
-      for(let j=0;j<6;j++){const a=(j/6)*Math.PI*2-Math.PI/6;j===0?ctx.moveTo(Math.cos(a)*gS,Math.sin(a)*gS):ctx.lineTo(Math.cos(a)*gS,Math.sin(a)*gS);}
-      ctx.closePath();
+      ctx.beginPath();for(let j=0;j<6;j++){const a=(j/6)*Math.PI*2-Math.PI/6;j===0?ctx.moveTo(Math.cos(a)*gS,Math.sin(a)*gS):ctx.lineTo(Math.cos(a)*gS,Math.sin(a)*gS);}ctx.closePath();
       const gg=ctx.createRadialGradient(-gS*0.3,-gS*0.3,0,0,0,gS);
-      gg.addColorStop(0,`hsla(${g.hue},90%,88%,${sh})`);
-      gg.addColorStop(0.5,`hsla(${g.hue},80%,58%,${sh})`);
-      gg.addColorStop(1,`hsla(${g.hue},70%,30%,${sh*0.8})`);
-      ctx.fillStyle=gg;ctx.fill();
-      ctx.strokeStyle=`hsla(${g.hue},70%,88%,0.5)`;ctx.lineWidth=0.7;ctx.stroke();
-      ctx.restore();
-      ctx.fillStyle=`hsla(${g.hue},65%,75%,0.7)`;
-      ctx.font=`${Math.round(gS*0.40)}px 'Courier New',monospace`;
-      ctx.textAlign="center";ctx.fillText(g.name,gx,gy+gS*1.55);
+      gg.addColorStop(0,`hsla(${g.hue},90%,88%,${sh})`);gg.addColorStop(0.5,`hsla(${g.hue},80%,58%,${sh})`);gg.addColorStop(1,`hsla(${g.hue},70%,30%,${sh*0.8})`);
+      ctx.fillStyle=gg;ctx.fill();ctx.strokeStyle=`hsla(${g.hue},70%,88%,0.45)`;ctx.lineWidth=0.6;ctx.stroke();ctx.restore();
+      ctx.fillStyle=`hsla(${g.hue},65%,72%,0.65)`;ctx.font=`${Math.round(gS*0.38)}px 'Courier New',monospace`;ctx.textAlign="center";ctx.fillText(g.name,gx,gy+gS*1.52);
     });
   }
-
-  // 닫기 힌트
-  ctx.fillStyle="rgba(120,110,160,0.35)";
-  ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;
-  ctx.textAlign="center";
+  ctx.fillStyle="rgba(110,100,150,0.32)";ctx.font=`${Math.round(Math.min(cw,ch)*0.021)}px 'Courier New',monospace`;ctx.textAlign="center";
   ctx.fillText("탭하면 닫힘",sCX,sCY+sR+(isLS?sR*0.30:sR*0.34));
-
   ctx.globalAlpha=1;
 }
+
+function drawBlackOrb(ctx,sCX,sCY,sR,crackAlpha,shards){
+  ctx.save();ctx.beginPath();ctx.arc(sCX,sCY,sR,0,Math.PI*2);ctx.clip();
+  const base=ctx.createRadialGradient(sCX,sCY,0,sCX,sCY,sR);
+  base.addColorStop(0,"rgb(22,18,32)");base.addColorStop(0.5,"rgb(12,9,20)");base.addColorStop(1,"rgb(4,3,8)");
+  ctx.fillStyle=base;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);
+  if(crackAlpha>0.01){
+    ctx.lineCap="round";
+    shards.forEach(poly=>{
+      ctx.beginPath();poly.forEach(([nx,ny],i)=>i===0?ctx.moveTo(sCX+nx*sR,sCY+ny*sR):ctx.lineTo(sCX+nx*sR,sCY+ny*sR));ctx.closePath();
+      ctx.strokeStyle=`rgba(80,60,120,${crackAlpha*0.6})`;ctx.lineWidth=0.8;ctx.stroke();
+    });
+  }
+  const hlx=sCX-sR*0.32,hly=sCY-sR*0.30;
+  const hl=ctx.createRadialGradient(hlx,hly,0,hlx,hly,sR*0.50);
+  hl.addColorStop(0,"rgba(255,255,255,0.28)");hl.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=hl;ctx.fillRect(sCX-sR,sCY-sR,sR*2,sR*2);ctx.restore();
+}
+
+function drawShardsSpread(ctx,sCX,sCY,sR,shards,spread,gems,time){
+  ctx.save();ctx.beginPath();ctx.arc(sCX,sCY,sR*(1+spread*1.5),0,Math.PI*2);ctx.clip();
+  const base=ctx.createRadialGradient(sCX,sCY,0,sCX,sCY,sR);
+  base.addColorStop(0,"rgb(18,14,28)");base.addColorStop(1,"rgb(4,3,8)");
+  ctx.fillStyle=base;ctx.fillRect(sCX-sR*2,sCY-sR*2,sR*4,sR*4);
+  shards.forEach((poly,idx)=>{
+    const gem=gems[idx];
+    const cx2=poly.reduce((s,[x])=>s+x,0)/poly.length,cy2=poly.reduce((s,[,y])=>s+y,0)/poly.length;
+    const ox=cx2*spread*sR*18,oy=cy2*spread*sR*18;
+    ctx.save();ctx.translate(ox,oy);
+    ctx.beginPath();poly.forEach(([nx,ny],i)=>i===0?ctx.moveTo(sCX+nx*sR,sCY+ny*sR):ctx.lineTo(sCX+nx*sR,sCY+ny*sR));ctx.closePath();
+    if(gem){
+      const shimmer=Math.sin(time*1.8+idx*0.7)*0.12+0.88;
+      const gx=sCX+cx2*sR,gy=sCY+cy2*sR;
+      const g=ctx.createLinearGradient(gx-sR*0.38,gy-sR*0.38,gx+sR*0.32,gy+sR*0.32);
+      g.addColorStop(0,`hsla(${gem.hue},90%,84%,${shimmer*0.96})`);g.addColorStop(0.3,`hsla(${gem.hue},80%,60%,${shimmer*0.92})`);g.addColorStop(0.65,`hsla(${gem.hue},70%,36%,${shimmer*0.86})`);g.addColorStop(1,`hsla(${gem.hue},60%,18%,${shimmer*0.80})`);
+      ctx.fillStyle=g;ctx.fill();
+      const hg=ctx.createRadialGradient(gx-sR*0.16,gy-sR*0.16,0,gx-sR*0.16,gy-sR*0.16,sR*0.25);
+      hg.addColorStop(0,`hsla(${gem.hue},100%,97%,${shimmer*0.62})`);hg.addColorStop(1,"rgba(255,255,255,0)");
+      ctx.fillStyle=hg;ctx.fill();
+      ctx.strokeStyle=`hsla(${gem.hue},80%,88%,0.50)`;ctx.lineWidth=0.9;ctx.stroke();
+      const spk=Math.sin(time*2.2+idx*1.3);
+      if(spk>0.62){
+        const spx=gx+Math.cos(time+idx)*sR*0.12,spy=gy+Math.sin(time*1.3+idx)*sR*0.10,ss=sR*0.042*((spk-0.62)/0.38);
+        ctx.beginPath();ctx.moveTo(spx,spy-ss*2.5);ctx.lineTo(spx+ss*0.5,spy-ss*0.5);ctx.lineTo(spx+ss*2.5,spy);ctx.lineTo(spx+ss*0.5,spy+ss*0.5);ctx.lineTo(spx,spy+ss*2.5);ctx.lineTo(spx-ss*0.5,spy+ss*0.5);ctx.lineTo(spx-ss*2.5,spy);ctx.lineTo(spx-ss*0.5,spy-ss*0.5);ctx.closePath();
+        ctx.fillStyle=`hsla(${gem.hue},100%,98%,${(spk-0.62)/0.38*0.88})`;ctx.fill();
+      }
+    }else{ctx.fillStyle="rgba(0,0,0,0.38)";ctx.fill();ctx.strokeStyle="rgba(60,50,100,0.28)";ctx.lineWidth=0.6;ctx.stroke();}
+    ctx.restore();
+  });
+  const hlx=sCX-sR*0.32,hly=sCY-sR*0.30;
+  const hl=ctx.createRadialGradient(hlx,hly,0,hlx,hly,sR*0.50);
+  hl.addColorStop(0,"rgba(255,255,255,0.24)");hl.addColorStop(1,"rgba(255,255,255,0)");
+  ctx.fillStyle=hl;ctx.fillRect(sCX-sR*2,sCY-sR*2,sR*4,sR*4);ctx.restore();
+}
+
+// ─── 퍼즐 판 ─────────────────────────────────────────────────────────────────
 function drawPuzzleBoard(ctx,cw,ch,state,time,alpha){
   if(alpha<0.01)return;
   ctx.globalAlpha=alpha;
-
-  // 우주 배경
   ctx.fillStyle="rgb(3,3,10)";ctx.fillRect(0,0,cw,ch);
   for(let i=0;i<200;i++){
-    const sx=((i*7919+i*1234)%(cw*10))/10;const sy=((i*6271+i*4321)%(ch*10))/10;
+    const sx=((i*7919+i*1234)%(cw*10))/10,sy=((i*6271+i*4321)%(ch*10))/10;
     const ss=((i%5)*0.25+0.25),pulse=Math.sin(time*0.7+i*0.6)*0.3+0.7;
     ctx.beginPath();ctx.arc(sx,sy,ss,0,Math.PI*2);ctx.fillStyle=`rgba(200,200,255,${0.12*pulse})`;ctx.fill();
   }
   const neb=ctx.createRadialGradient(cw*0.5,ch*0.45,0,cw*0.5,ch*0.45,Math.max(cw,ch)*0.65);
   neb.addColorStop(0,"rgba(20,8,55,0.5)");neb.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle=neb;ctx.fillRect(0,0,cw,ch);
-
-  const {placedMap,currentPieceKey,inventoryPieces,selectedInventoryId,puzzleFragments} = state;
-
-  // 배치된 조각들의 바운딩 박스
+  const {placedMap,currentPieceKey,inventoryPieces,selectedInventoryId,puzzleFragments}=state;
   let minC=Infinity,maxC=-Infinity,minR=Infinity,maxR=-Infinity;
   placedMap.forEach((_,k)=>{const [c,r]=k.split(",").map(Number);minC=Math.min(minC,c);maxC=Math.max(maxC,c);minR=Math.min(minR,r);maxR=Math.max(maxR,r);});
-
-  const gridW=maxC-minC+1, gridH=maxR-minR+1;
+  const gridW=maxC-minC+1,gridH=maxR-minR+1;
   const boardAreaH=ch*0.62;
-  const pieceSize=Math.min(Math.min(cw*0.82/Math.max(gridW+2,3), boardAreaH/Math.max(gridH+2,3)),120);
-  const gap=pieceSize*0.12;
-  const stride=pieceSize+gap;
-  const boardCX=cw/2;
-  const boardCY=ch*0.36;
+  const pieceSize=Math.min(Math.min(cw*0.82/Math.max(gridW+2,3),boardAreaH/Math.max(gridH+2,3)),120);
+  const gap=pieceSize*0.12,stride=pieceSize+gap;
+  const boardCX=cw/2,boardCY=ch*0.36;
   const toSX=(col)=>boardCX+(col-minC-(gridW-1)/2)*stride;
   const toSY=(row)=>boardCY+(row-minR-(gridH-1)/2)*stride;
-
-  // 유효 슬롯 (인접하고 비어있는 위치)
   const validSlots=new Set();
   if(selectedInventoryId){
-    placedMap.forEach((_,k)=>{
-      const [c,r]=k.split(",").map(Number);
-      DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(!placedMap.has(nk))validSlots.add(nk);});
-    });
+    placedMap.forEach((_,k)=>{const [c,r]=k.split(",").map(Number);DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(!placedMap.has(nk))validSlots.add(nk);});});
   }
-
-  // 유효 슬롯 그리기
   validSlots.forEach(k=>{
-    const [c,r]=k.split(",").map(Number);
-    const sx=toSX(c),sy=toSY(r);
+    const [c,r]=k.split(",").map(Number);const sx=toSX(c),sy=toSY(r);
     ctx.save();ctx.translate(sx,sy);
     ctx.strokeStyle="rgba(180,160,255,0.45)";ctx.lineWidth=1.5;ctx.setLineDash([5,6]);
     ctx.strokeRect(-pieceSize/2,-pieceSize/2,pieceSize,pieceSize);ctx.setLineDash([]);
     ctx.fillStyle="rgba(140,120,220,0.08)";ctx.fillRect(-pieceSize/2,-pieceSize/2,pieceSize,pieceSize);
-    ctx.fillStyle="rgba(180,160,255,0.4)";ctx.font=`${Math.round(pieceSize*0.22)}px serif`;
-    ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("+",0,0);
-    ctx.restore();
+    ctx.fillStyle="rgba(180,160,255,0.4)";ctx.font=`${Math.round(pieceSize*0.22)}px serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("+",0,0);ctx.restore();
   });
-
-  // 배치된 조각 그리기
   placedMap.forEach((pieceData,k)=>{
-    const [c,r]=k.split(",").map(Number);
-    const sx=toSX(c),sy=toSY(r);
-    const isCurrent=k===currentPieceKey;
-    const theme=THEMES[pieceData.themeId];
-    const pulse=isCurrent?Math.sin(time*1.5)*0.04+0.96:1;
-    const ps=pieceSize*pulse;
+    const [c,r]=k.split(",").map(Number);const sx=toSX(c),sy=toSY(r);
+    const isCurrent=k===currentPieceKey,theme=THEMES[pieceData.themeId];
+    const pulse=isCurrent?Math.sin(time*1.5)*0.04+0.96:1,ps=pieceSize*pulse;
     const exploreRatio=Math.min(1,pieceData.explored/(NODES_PER_PIECE*0.5));
-
     ctx.save();ctx.translate(sx,sy);
-
-    // 조각 배경
     const grad=ctx.createLinearGradient(-ps/2,-ps/2,ps/2,ps/2);
     const [b0,b1,b2]=theme.bg;
-    grad.addColorStop(0,`rgba(${b0+30},${b1+25},${b2+40},0.92)`);
-    grad.addColorStop(1,`rgba(${b0},${b1},${b2},0.88)`);
+    grad.addColorStop(0,`rgba(${b0+30},${b1+25},${b2+40},0.92)`);grad.addColorStop(1,`rgba(${b0},${b1},${b2},0.88)`);
     ctx.fillStyle=grad;ctx.fillRect(-ps/2,-ps/2,ps,ps);
-
-    // 탐험 진행 오버레이
     if(exploreRatio>0){
       const expGrad=ctx.createRadialGradient(0,0,0,0,0,ps*0.6);
-      expGrad.addColorStop(0,`${theme.boardColor.replace("0.8",String(exploreRatio*0.35))}`);
-      expGrad.addColorStop(1,"rgba(0,0,0,0)");
+      expGrad.addColorStop(0,`${theme.boardColor.replace("0.8",String(exploreRatio*0.35))}`);expGrad.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=expGrad;ctx.fillRect(-ps/2,-ps/2,ps,ps);
     }
-
-    // 테두리
-    if(isCurrent){
-      ctx.strokeStyle=theme.boardColor;ctx.lineWidth=2.5;
-      ctx.strokeRect(-ps/2,-ps/2,ps,ps);
-      // 현재 위치 마커
-      ctx.beginPath();ctx.arc(0,0,5,0,Math.PI*2);
-      ctx.fillStyle="rgba(255,255,255,0.9)";ctx.fill();
-    }else{
-      ctx.strokeStyle=theme.boardColor.replace("0.8","0.35");ctx.lineWidth=1;
-      ctx.strokeRect(-ps/2,-ps/2,ps,ps);
-    }
-
-    // 테마 이름
-    ctx.fillStyle=theme.boardColor;
-    ctx.font=`${Math.round(ps*0.11)}px 'Courier New',monospace`;
-    ctx.textAlign="center";ctx.textBaseline="middle";
+    if(isCurrent){ctx.strokeStyle=theme.boardColor;ctx.lineWidth=2.5;ctx.strokeRect(-ps/2,-ps/2,ps,ps);ctx.beginPath();ctx.arc(0,0,5,0,Math.PI*2);ctx.fillStyle="rgba(255,255,255,0.9)";ctx.fill();}
+    else{ctx.strokeStyle=theme.boardColor.replace("0.8","0.35");ctx.lineWidth=1;ctx.strokeRect(-ps/2,-ps/2,ps,ps);}
+    ctx.fillStyle=theme.boardColor;ctx.font=`${Math.round(ps*0.11)}px 'Courier New',monospace`;ctx.textAlign="center";ctx.textBaseline="middle";
     ctx.fillText(theme.name,0,isCurrent?ps*0.25:0);
-    if(exploreRatio>0.05&&!isCurrent){
-      ctx.fillStyle="rgba(200,190,255,0.5)";
-      ctx.font=`${Math.round(ps*0.09)}px 'Courier New',monospace`;
-      ctx.fillText(`${Math.round(exploreRatio*100)}%`,0,ps*0.22);
-    }
-    if(isCurrent){
-      ctx.fillStyle="rgba(200,190,255,0.55)";
-      ctx.font=`${Math.round(ps*0.09)}px 'Courier New',monospace`;
-      ctx.fillText(`${Math.round(exploreRatio*100)}% 탐험`,0,-ps*0.22);
-    }
-
-    // 연결선 (인접 조각 연결 표시)
-    DIRS.forEach(d=>{
-      const nk=pk(c+d.dc,r+d.dr);
-      if(placedMap.has(nk)){
-        const ex=d.dc*ps/2,ey=d.dr*ps/2;
-        ctx.beginPath();ctx.moveTo(ex-d.dr*4,ey-d.dc*4);ctx.lineTo(ex+d.dr*4,ey+d.dc*4);
-        ctx.strokeStyle=theme.boardColor.replace("0.8","0.5");ctx.lineWidth=2;ctx.stroke();
-      }
-    });
-
+    if(exploreRatio>0.05&&!isCurrent){ctx.fillStyle="rgba(200,190,255,0.5)";ctx.font=`${Math.round(ps*0.09)}px 'Courier New',monospace`;ctx.fillText(`${Math.round(exploreRatio*100)}%`,0,ps*0.22);}
+    if(isCurrent){ctx.fillStyle="rgba(200,190,255,0.55)";ctx.font=`${Math.round(ps*0.09)}px 'Courier New',monospace`;ctx.fillText(`${Math.round(exploreRatio*100)}% 탐험`,0,-ps*0.22);}
+    DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(placedMap.has(nk)){const ex=d.dc*ps/2,ey=d.dr*ps/2;ctx.beginPath();ctx.moveTo(ex-d.dr*4,ey-d.dc*4);ctx.lineTo(ex+d.dr*4,ey+d.dc*4);ctx.strokeStyle=theme.boardColor.replace("0.8","0.5");ctx.lineWidth=2;ctx.stroke();}});
     ctx.restore();
   });
-
-  // ── 인벤토리 조각들 (주변부에 흩어짐) ────────────────────────────────────
-  const invCX=cw/2, invCY=ch/2;
-  const scatterR=Math.min(cw,ch)*0.42;
-
+  const invCX=cw/2,invCY=ch/2,scatterR=Math.min(cw,ch)*0.42;
   inventoryPieces.forEach((inv,idx)=>{
-    const sx=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist;
-    const sy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist;
-    const theme=THEMES[inv.themeId];
-    const isSelected=inv.id===selectedInventoryId;
-    const ps=pieceSize*(isSelected?0.62:0.52);
-    const pulse=isSelected?Math.sin(time*3)*0.06+0.94:1;
-
+    const sx=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist,sy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist;
+    const theme=THEMES[inv.themeId],isSelected=inv.id===selectedInventoryId;
+    const ps=pieceSize*(isSelected?0.62:0.52),pulse=isSelected?Math.sin(time*3)*0.06+0.94:1;
     ctx.save();ctx.translate(sx,sy);ctx.rotate(inv.rotation);
-
     const grad=ctx.createLinearGradient(-ps/2,-ps/2,ps/2,ps/2);
     const [b0,b1,b2]=theme.bg;
-    grad.addColorStop(0,`rgba(${b0+20},${b1+18},${b2+30},${isSelected?0.95:0.80})`);
-    grad.addColorStop(1,`rgba(${b0},${b1},${b2},${isSelected?0.90:0.75})`);
+    grad.addColorStop(0,`rgba(${b0+20},${b1+18},${b2+30},${isSelected?0.95:0.80})`);grad.addColorStop(1,`rgba(${b0},${b1},${b2},${isSelected?0.90:0.75})`);
     ctx.fillStyle=grad;ctx.fillRect(-ps/2*pulse,-ps/2*pulse,ps*pulse,ps*pulse);
-
-    if(isSelected){
-      ctx.strokeStyle=theme.boardColor;ctx.lineWidth=2.2;
-      const glow=ctx.createRadialGradient(0,0,0,0,0,ps);
-      glow.addColorStop(0,theme.boardColor.replace("0.8","0.25"));glow.addColorStop(1,"rgba(0,0,0,0)");
-      ctx.fillStyle=glow;ctx.fillRect(-ps,-ps,ps*2,ps*2);
-    }else{
-      ctx.strokeStyle=theme.boardColor.replace("0.8","0.45");ctx.lineWidth=1;
-    }
+    if(isSelected){ctx.strokeStyle=theme.boardColor;ctx.lineWidth=2.2;const glow=ctx.createRadialGradient(0,0,0,0,0,ps);glow.addColorStop(0,theme.boardColor.replace("0.8","0.25"));glow.addColorStop(1,"rgba(0,0,0,0)");ctx.fillStyle=glow;ctx.fillRect(-ps,-ps,ps*2,ps*2);}
+    else{ctx.strokeStyle=theme.boardColor.replace("0.8","0.45");ctx.lineWidth=1;}
     ctx.strokeRect(-ps/2*pulse,-ps/2*pulse,ps*pulse,ps*pulse);
-
-    ctx.fillStyle=isSelected?theme.boardColor:"rgba(180,170,220,0.6)";
-    ctx.font=`${Math.round(ps*0.18)}px 'Courier New',monospace`;
-    ctx.textAlign="center";ctx.textBaseline="middle";
-    ctx.fillText(theme.name,0,0);
-    ctx.restore();
+    ctx.fillStyle=isSelected?theme.boardColor:"rgba(180,170,220,0.6)";ctx.font=`${Math.round(ps*0.18)}px 'Courier New',monospace`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(theme.name,0,0);ctx.restore();
   });
-
-  // ── 하단 UI ───────────────────────────────────────────────────────────────
-  ctx.fillStyle="rgba(255,195,50,0.85)";
-  ctx.font=`${Math.round(Math.min(cw,ch)*0.032)}px 'Courier New',monospace`;
-  ctx.textAlign="left";ctx.fillText(`✦ 퍼즐 조각 ×${puzzleFragments}`,18,ch-20);
-
-  if(selectedInventoryId){
-    ctx.fillStyle="rgba(180,160,255,0.6)";
-    ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;
-    ctx.fillText("점선 위치에 놓기",18,ch-6);
-  }else if(inventoryPieces.length>0&&puzzleFragments>0){
-    ctx.fillStyle="rgba(180,160,255,0.4)";
-    ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;
-    ctx.fillText("흩어진 조각을 탭해보세요",18,ch-6);
-  }
-
-  ctx.fillStyle="rgba(120,110,170,0.35)";
-  ctx.font=`${Math.round(Math.min(cw,ch)*0.020)}px 'Courier New',monospace`;
-  ctx.textAlign="right";ctx.fillText("🗺 또는 더블탭 → 탐험으로",cw-14,ch-6);
-
+  ctx.fillStyle="rgba(255,195,50,0.85)";ctx.font=`${Math.round(Math.min(cw,ch)*0.032)}px 'Courier New',monospace`;ctx.textAlign="left";ctx.fillText(`✦ 퍼즐 조각 ×${puzzleFragments}`,18,ch-20);
+  if(selectedInventoryId){ctx.fillStyle="rgba(180,160,255,0.6)";ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;ctx.fillText("점선 위치에 놓기",18,ch-6);}
+  else if(inventoryPieces.length>0&&puzzleFragments>0){ctx.fillStyle="rgba(180,160,255,0.4)";ctx.font=`${Math.round(Math.min(cw,ch)*0.022)}px 'Courier New',monospace`;ctx.fillText("흩어진 조각을 탭해보세요",18,ch-6);}
+  ctx.fillStyle="rgba(120,110,170,0.35)";ctx.font=`${Math.round(Math.min(cw,ch)*0.020)}px 'Courier New',monospace`;ctx.textAlign="right";ctx.fillText("🗺 또는 더블탭 → 탐험으로",cw-14,ch-6);
   ctx.globalAlpha=1;
 }
 
@@ -541,8 +630,6 @@ function PieceToast({themeName}){
   );
 }
 
-const INIT_ZONES=1;
-
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function SphereV9(){
   const canvasRef=useRef(null);
@@ -550,45 +637,40 @@ export default function SphereV9(){
   const haptic=useRef(new HapticEngine());
   const pendingTapRef=useRef(null);
 
-  // 퍼즐 초기 상태
   const initPlaced=()=>{const m=new Map();m.set("0,0",{themeId:0,explored:0,gemCount:0});return m;};
   const initNodes=()=>{const m=new Map();m.set("0,0",generatePieceNodes(0));return m;};
   const initParts=()=>{const m=new Map();m.set("0,0",Array.from({length:PARTICLE_COUNT},()=>makeParticle(0)));return m;};
 
   const stateRef=useRef({
-    // 구체 — 조각 내부 좌표
     sphere:{col:0,row:0,lx:PIECE_W/2,ly:PIECE_H/2},
     vel:{x:SPHERE_SPEED,y:SPHERE_SPEED*0.2},
     targetAngle:Math.atan2(0.2,1),
     trail:[],
-    // 다중 조각
     placedMap:initPlaced(),
     pieceNodes:initNodes(),
     pieceParticles:initParts(),
     currentPieceKey:"0,0",
-    inventoryPieces:[],   // 처음엔 비어있음 — 조각 노드를 공전해서 획득
+    inventoryPieces:[],
     selectedInventoryId:null,
     puzzleFragments:0,
     nodesForNextFrag:0,
-    // 카메라 (월드 좌표)
     cam:{x:PIECE_W/2,y:PIECE_H/2},
     zoom:ZOOM_NORMAL,zoomTarget:ZOOM_NORMAL,
     zoomedOut:false,orbitPreview:null,
-    // 퍼즐 판 뷰
     puzzleView:false,puzzleAlpha:0,
-    // 구체 디테일
     detailView:false,detailAlpha:0,
-    // 수집
-    collectedGems:[],orbitGemTimer:0,orbitGemNodeId:null,
+    collectedGems:[],
     orbit:null,
     wallFlash:null,
-    // 입력
+    shardSeed:Math.floor(Math.random()*0xffffff),
+    shardPattern:null,
+    shatterPhase:'none',
+    shatterT:0,shatterTimer:0,
     time:0,
     lastTapTime:0,lastTapPos:{x:0,y:0},
     pressStart:null,pressProgress:0,pressWorld:null,
     pressScreenStart:null,isDragging:false,revealMode:false,
     prevOrbitActive:false,
-    // 토스트
     toastKey:0,toastCount:0,showToast:false,
   });
 
@@ -607,7 +689,6 @@ export default function SphereV9(){
   const initCanvas=useCallback(()=>{const c=canvasRef.current;if(!c)return;c.width=c.offsetWidth;c.height=c.offsetHeight;},[]);
   useEffect(()=>{initCanvas();window.addEventListener("resize",initCanvas);return()=>window.removeEventListener("resize",initCanvas);},[initCanvas]);
 
-  // 월드 좌표 변환
   const sphereWorldX=(s)=>s.sphere.col*PIECE_W+s.sphere.lx;
   const sphereWorldY=(s)=>s.sphere.row*PIECE_H+s.sphere.ly;
 
@@ -618,7 +699,6 @@ export default function SphereV9(){
            y:(cy-rect.top-c.height/2)/s.zoom+s.cam.y};
   },[]);
 
-  // ─── 퍼즐 판 탭 처리 ───────────────────────────────────────────────────────
   const handleBoardTap=useCallback((cx,cy,cw,ch)=>{
     const s=stateRef.current;
     const {placedMap,inventoryPieces,selectedInventoryId,puzzleFragments}=s;
@@ -633,10 +713,7 @@ export default function SphereV9(){
     const toSY=(row)=>boardCY+(row-minR-(gridH-1)/2)*stride;
     const rect=canvasRef.current.getBoundingClientRect();
     const sx=cx-rect.left,sy=cy-rect.top;
-    const scatterR=Math.min(cw,ch)*0.42;
-    const invCX=cw/2,invCY=ch/2;
-
-    // 인벤토리 조각 탭 확인
+    const scatterR=Math.min(cw,ch)*0.42,invCX=cw/2,invCY=ch/2;
     let tappedInvId=null;
     inventoryPieces.forEach(inv=>{
       const ix=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist;
@@ -644,29 +721,19 @@ export default function SphereV9(){
       const ps=pieceSize*(inv.id===selectedInventoryId?0.62:0.52);
       if(Math.abs(sx-ix)<ps*0.6&&Math.abs(sy-iy)<ps*0.6)tappedInvId=inv.id;
     });
-
-    if(tappedInvId){
-      s.selectedInventoryId=tappedInvId===selectedInventoryId?null:tappedInvId;
-      return;
-    }
-
-    // 유효 슬롯 탭 확인 (인벤토리 조각 선택됨 + 퍼즐 조각 보유)
+    if(tappedInvId){s.selectedInventoryId=tappedInvId===selectedInventoryId?null:tappedInvId;return;}
     if(selectedInventoryId&&puzzleFragments>0){
       const validSlots=new Set();
       placedMap.forEach((_,k)=>{const [c,r]=k.split(",").map(Number);DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(!placedMap.has(nk))validSlots.add(nk);});});
       validSlots.forEach(k=>{
-        const [c,r]=k.split(",").map(Number);
-        const slotX=toSX(c),slotY=toSY(r);
+        const [c,r]=k.split(",").map(Number);const slotX=toSX(c),slotY=toSY(r);
         if(Math.abs(sx-slotX)<pieceSize*0.55&&Math.abs(sy-slotY)<pieceSize*0.55){
-          // 조각 배치!
-          const inv=inventoryPieces.find(i=>i.id===selectedInventoryId);
-          if(!inv)return;
+          const inv=inventoryPieces.find(i=>i.id===selectedInventoryId);if(!inv)return;
           placedMap.set(k,{themeId:inv.themeId,explored:0,gemCount:0});
           s.pieceNodes.set(k,generatePieceNodes(inv.themeId));
           s.pieceParticles.set(k,Array.from({length:PARTICLE_COUNT},()=>makeParticle(inv.themeId)));
           s.inventoryPieces=inventoryPieces.filter(i=>i.id!==selectedInventoryId);
-          s.puzzleFragments=puzzleFragments-1;
-          s.selectedInventoryId=null;
+          s.puzzleFragments=puzzleFragments-1;s.selectedInventoryId=null;
           audio.current.piecePlace();haptic.current.puzzlePiecePlace();
         }
       });
@@ -683,17 +750,14 @@ export default function SphereV9(){
       const s=stateRef.current,c=canvasRef.current;if(!c)return false;
       const rect=c.getBoundingClientRect();
       const swx=sphereWorldX(s),swy=sphereWorldY(s);
-      const scx=(swx-s.cam.x)*s.zoom+c.width/2;
-      const scy=(swy-s.cam.y)*s.zoom+c.height/2;
+      const scx=(swx-s.cam.x)*s.zoom+c.width/2,scy=(swy-s.cam.y)*s.zoom+c.height/2;
       return Math.hypot(cx-rect.left-scx,cy-rect.top-scy)<Math.max(30,14*s.zoom);
     };
 
     const fireSingleTap=(cx,cy)=>{
-      const s=stateRef.current;
-      const c=canvasRef.current;if(!c)return;
+      const s=stateRef.current,c=canvasRef.current;if(!c)return;
       if(s.puzzleView){handleBoardTap(cx,cy,c.width,c.height);return;}
       if(s.detailView){s.detailView=false;return;}
-      // ★ 줌아웃 상태에서 단일 탭 → 그냥 줌인 (공전 없이 취소)
       if(s.zoomedOut){s.zoomedOut=false;s.zoomTarget=ZOOM_NORMAL;s.orbitPreview=null;hp.zoomIn();if(au.ready)au.zoomIn();return;}
       if(isSphereHit(cx,cy)){s.detailView=true;if(au.ready)au.zoomIn();return;}
       if(s.orbit){s.orbit=null;hp.orbitRelease();return;}
@@ -703,16 +767,12 @@ export default function SphereV9(){
       s.targetAngle=Math.atan2(dy,dx);hp.steer();
     };
 
-    // 더블탭 → 줌아웃/인 토글만 (공전은 드래그+손떼기로)
     const fireDoubleTap=()=>{
       const s=stateRef.current;
       if(s.puzzleView){s.puzzleView=false;s.zoomTarget=ZOOM_NORMAL;hp.zoomIn();if(au.ready)au.zoomIn();return;}
       if(s.detailView){s.detailView=false;return;}
-      if(!s.zoomedOut){
-        s.zoomedOut=true;s.zoomTarget=ZOOM_OUT;hp.zoomOut();if(au.ready)au.zoomOut();
-      }else{
-        s.zoomedOut=false;s.zoomTarget=ZOOM_NORMAL;s.orbitPreview=null;hp.zoomIn();if(au.ready)au.zoomIn();
-      }
+      if(!s.zoomedOut){s.zoomedOut=true;s.zoomTarget=ZOOM_OUT;hp.zoomOut();if(au.ready)au.zoomOut();}
+      else{s.zoomedOut=false;s.zoomTarget=ZOOM_NORMAL;s.orbitPreview=null;hp.zoomIn();if(au.ready)au.zoomIn();}
     };
 
     const handlePointerEnd=(cx,cy)=>{
@@ -721,8 +781,6 @@ export default function SphereV9(){
       const wasReveal=s.revealMode,wasDragging=s.isDragging;
       s.isDragging=false;s.pressStart=null;s.pressProgress=0;s.revealMode=false;s.pressScreenStart=null;
       if(au.ready)au.releasePressCharge(false);
-
-      // 줌아웃 드래그 → 손 떼면 공전 확정
       if(wasDragging&&s.zoomedOut&&s.orbitPreview){
         const wp=toWorld(cx,cy);
         const swx=sphereWorldX(s),swy=sphereWorldY(s);
@@ -737,7 +795,6 @@ export default function SphereV9(){
         s.zoomedOut=false;s.zoomTarget=ZOOM_NORMAL;s.orbitPreview=null;return;
       }
       if(wasReveal||wasDragging)return;
-
       const now=performance.now();
       const wp=toWorld(cx,cy);
       const dt=now-s.lastTapTime,dd=Math.hypot(wp.x-s.lastTapPos.x,wp.y-s.lastTapPos.y);
@@ -748,6 +805,7 @@ export default function SphereV9(){
       pendingTapRef.current={timer:setTimeout(()=>{pendingTapRef.current=null;fireSingleTap(sc,sd);},SINGLE_TAP_DELAY)};
     };
 
+    // ★ 조이스틱 방식: 드래그 시작점(pressScreenStart) 기준 상대 방향
     const handlePointerMove=(cx,cy,sX,sY)=>{
       const s=stateRef.current;
       if(s.puzzleView)return;
@@ -755,16 +813,14 @@ export default function SphereV9(){
         if(Math.hypot(sX-s.pressScreenStart.x,sY-s.pressScreenStart.y)>DRAG_THRESHOLD){
           s.isDragging=true;clearTimeout(pressTimerRef.current);s.pressProgress=0;
           clearPending();if(au.ready)au.releasePressCharge(false);
-          // ★ 공전 중 드래그 감지 → 공전 자연스럽게 해제
           if(s.orbit){s.orbit=null;hp.orbitRelease();}
         }
       }
       if(s.isDragging&&!s.orbit&&!s.detailView){
-        const wp=toWorld(cx,cy);
-        const swx=sphereWorldX(s),swy=sphereWorldY(s);
-        const dx=wp.x-swx,dy=wp.y-swy;
-        // 드래그 방향 전환 시 햅틱 없음 — 시각 몰입 유지
-        if(Math.hypot(dx,dy)>5){s.targetAngle=Math.atan2(dy,dx);}
+        // ★ 조이스틱: 손가락 시작점 기준 상대 방향으로 steering
+        const dx=cx-s.pressScreenStart.x;
+        const dy=cy-s.pressScreenStart.y;
+        if(Math.hypot(dx,dy)>8){s.targetAngle=Math.atan2(dy,dx);}
       }
       if(s.zoomedOut){
         const wp=toWorld(cx,cy);
@@ -833,12 +889,9 @@ export default function SphereV9(){
           s.orbit.angle+=s.orbit.angularSpeed;
           const swx=s.orbit.cx+Math.cos(s.orbit.angle)*s.orbit.radius;
           const swy=s.orbit.cy+Math.sin(s.orbit.angle)*s.orbit.radius;
-          const targetCol=Math.floor(swx/PIECE_W);
-          const targetRow=Math.floor(swy/PIECE_H);
+          const targetCol=Math.floor(swx/PIECE_W),targetRow=Math.floor(swy/PIECE_H);
           const targetKey=pk(targetCol,targetRow);
-
           if(s.placedMap.has(targetKey)){
-            // 정상 공전
             s.sphere.col=targetCol;s.sphere.row=targetRow;
             s.sphere.lx=swx-targetCol*PIECE_W;s.sphere.ly=swy-targetRow*PIECE_H;
             const tang=s.orbit.angularSpeed>0?s.orbit.angle+Math.PI/2:s.orbit.angle-Math.PI/2;
@@ -846,17 +899,11 @@ export default function SphereV9(){
             s.targetAngle=Math.atan2(s.vel.y,s.vel.x);
             hp.orbitTick(s.orbit.angularSpeed);
           }else{
-            // 궤도가 공간 끝에 닿음 → 조용히 궤도 해제, 안쪽으로 유도
-            const curWX=s.sphere.col*PIECE_W+s.sphere.lx;
-            const curWY=s.sphere.row*PIECE_H+s.sphere.ly;
-            const pieceCX=(s.sphere.col+0.5)*PIECE_W;
-            const pieceCY=(s.sphere.row+0.5)*PIECE_H;
+            const curWX=s.sphere.col*PIECE_W+s.sphere.lx,curWY=s.sphere.row*PIECE_H+s.sphere.ly;
+            const pieceCX=(s.sphere.col+0.5)*PIECE_W,pieceCY=(s.sphere.row+0.5)*PIECE_H;
             const toCenter=Math.atan2(pieceCY-curWY,pieceCX-curWX);
-            s.vel.x=Math.cos(toCenter)*SPHERE_SPEED;
-            s.vel.y=Math.sin(toCenter)*SPHERE_SPEED;
-            s.targetAngle=toCenter;
-            s.orbit=null;
-            // 이펙트 없음 — 공간이 조용히 끝날 뿐
+            s.vel.x=Math.cos(toCenter)*SPHERE_SPEED;s.vel.y=Math.sin(toCenter)*SPHERE_SPEED;
+            s.targetAngle=toCenter;s.orbit=null;
           }
         }else{
           const curA=Math.atan2(s.vel.y,s.vel.x);let diff=s.targetAngle-curA;
@@ -864,49 +911,18 @@ export default function SphereV9(){
           const newA=curA+diff*STEER_STRENGTH;
           s.vel.x=Math.cos(newA)*SPHERE_SPEED;s.vel.y=Math.sin(newA)*SPHERE_SPEED;
           s.sphere.lx+=s.vel.x;s.sphere.ly+=s.vel.y;
-
-          // 공간의 끝 저항 — 연결 없는 방향만
           const connL=s.placedMap.has(pk(s.sphere.col-1,s.sphere.row));
           const connR=s.placedMap.has(pk(s.sphere.col+1,s.sphere.row));
           const connT=s.placedMap.has(pk(s.sphere.col,s.sphere.row-1));
           const connB=s.placedMap.has(pk(s.sphere.col,s.sphere.row+1));
           const EDGE=320;
-          const resist=(dist,connected)=>{
-            if(connected||dist>EDGE)return 1;
-            return(dist/EDGE)*0.18+0.82;
-          };
+          const resist=(dist,connected)=>{if(connected||dist>EDGE)return 1;return(dist/EDGE)*0.18+0.82;};
           s.vel.x*=resist(s.sphere.lx,connL)*resist(PIECE_W-s.sphere.lx,connR);
           s.vel.y*=resist(s.sphere.ly,connT)*resist(PIECE_H-s.sphere.ly,connB);
-
-          // 벽 처리 — 연결된 방향은 통과, 아니면 클램프 + 안쪽으로 부드럽게 유도
-          if(s.sphere.lx>PIECE_W){
-            const nk=pk(s.sphere.col+1,s.sphere.row);
-            if(s.placedMap.has(nk)){s.sphere.col++;s.sphere.lx-=PIECE_W;}
-            else{s.sphere.lx=PIECE_W-1;
-              s.vel.x=Math.min(s.vel.x,-0.2);
-              s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}
-          }
-          if(s.sphere.lx<0){
-            const nk=pk(s.sphere.col-1,s.sphere.row);
-            if(s.placedMap.has(nk)){s.sphere.col--;s.sphere.lx+=PIECE_W;}
-            else{s.sphere.lx=1;
-              s.vel.x=Math.max(s.vel.x,0.2);
-              s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}
-          }
-          if(s.sphere.ly>PIECE_H){
-            const nk=pk(s.sphere.col,s.sphere.row+1);
-            if(s.placedMap.has(nk)){s.sphere.row++;s.sphere.ly-=PIECE_H;}
-            else{s.sphere.ly=PIECE_H-1;
-              s.vel.y=Math.min(s.vel.y,-0.2);
-              s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}
-          }
-          if(s.sphere.ly<0){
-            const nk=pk(s.sphere.col,s.sphere.row-1);
-            if(s.placedMap.has(nk)){s.sphere.row--;s.sphere.ly+=PIECE_H;}
-            else{s.sphere.ly=1;
-              s.vel.y=Math.max(s.vel.y,0.2);
-              s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}
-          }
+          if(s.sphere.lx>PIECE_W){const nk=pk(s.sphere.col+1,s.sphere.row);if(s.placedMap.has(nk)){s.sphere.col++;s.sphere.lx-=PIECE_W;}else{s.sphere.lx=PIECE_W-1;s.vel.x=Math.min(s.vel.x,-0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
+          if(s.sphere.lx<0){const nk=pk(s.sphere.col-1,s.sphere.row);if(s.placedMap.has(nk)){s.sphere.col--;s.sphere.lx+=PIECE_W;}else{s.sphere.lx=1;s.vel.x=Math.max(s.vel.x,0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
+          if(s.sphere.ly>PIECE_H){const nk=pk(s.sphere.col,s.sphere.row+1);if(s.placedMap.has(nk)){s.sphere.row++;s.sphere.ly-=PIECE_H;}else{s.sphere.ly=PIECE_H-1;s.vel.y=Math.min(s.vel.y,-0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
+          if(s.sphere.ly<0){const nk=pk(s.sphere.col,s.sphere.row-1);if(s.placedMap.has(nk)){s.sphere.row--;s.sphere.ly+=PIECE_H;}else{s.sphere.ly=1;s.vel.y=Math.max(s.vel.y,0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
         }
       }
 
@@ -930,72 +946,52 @@ export default function SphereV9(){
       const wy=y=>(y-s.cam.y)*s.zoom+ch/2;
       const inView=(x,y,pad=400)=>wx(x)>-pad&&wx(x)<cw+pad&&wy(y)>-pad&&wy(y)<ch+pad;
 
-      // 현재 조각 노드
       const curNodes=s.pieceNodes.get(s.currentPieceKey)||[];
       const curPieceData=s.placedMap.get(s.currentPieceKey);
       const curTheme=THEMES[curPieceData?.themeId||0];
 
-      // ★ 근접/공전 수집 시스템
-      // 근처에 있기만 해도 느리게 차오름, 공전 시 3배 빠름
-      const PROX_RATE = 5;   // 근접 기본 속도 (ms/frame 환산)
-      const ORBIT_BONUS = 3; // 공전 시 배율
+      // ★ 테마 앰비언트 트리거
+      if(au.ready)au.startThemeAmb(curPieceData?.themeId??0);
 
+      // ── 근접/공전 수집 ───────────────────────────────────────────────────────
+      const PROX_RATE=5, ORBIT_BONUS=3;
+      let nearestGemProgress=null;
       curNodes.forEach(n=>{
         if(n.gemCollected&&n.pieceCollected)return;
         const nx=s.sphere.col*PIECE_W+n.x,ny=s.sphere.row*PIECE_H+n.y;
-
-        // 구체와의 거리
         const dSphere=Math.hypot(swx-nx,swy-ny);
-        const inProx=dSphere<LIGHT_RADIUS*1.6;
-
-        // 공전 중 가장 가까운 노드인지
-        let orbitNear=false;
-        if(s.orbit){
-          const dOrbit=Math.hypot(s.orbit.cx-nx,s.orbit.cy-ny);
-          orbitNear=dOrbit<LIGHT_RADIUS*1.5;
-        }
-
-        const rate=inProx?(orbitNear?PROX_RATE*ORBIT_BONUS:PROX_RATE):0;
-
-        // 보석 노드
-        if(n.isGem&&!n.gemCollected&&rate>0){
-          if(s.orbitGemNodeId===n.id||!s.orbitGemNodeId){
-            if(rate>0)s.orbitGemNodeId=n.id;
-            s.orbitGemTimer=(s.orbitGemTimer||0)+rate;
-            if(s.orbitGemTimer>=ORBIT_COLLECT_MS&&s.collectedGems.length<MAX_GEM_FRAGS){
-              n.gemCollected=true;s.orbitGemTimer=0;s.orbitGemNodeId=null;
-              const gem={hue:n.gemHue,name:n.gemName};s.collectedGems.push(gem);
-              if(curPieceData)curPieceData.gemCount++;
-              if(au.ready)au.gemCollect(gem.hue);hp.gemCollect();
+        const dOrbit=s.orbit?Math.hypot(s.orbit.cx-nx,s.orbit.cy-ny):Infinity;
+        const inProx=dSphere<LIGHT_RADIUS*1.6,orbitNear=dOrbit<LIGHT_RADIUS*1.5;
+        if(n.isGem&&!n.gemCollected){
+          if(inProx||orbitNear){
+            const rate=orbitNear?PROX_RATE*ORBIT_BONUS:PROX_RATE;
+            n.gemTimer=(n.gemTimer||0)+rate;
+            if(n.gemTimer>=ORBIT_COLLECT_MS&&s.collectedGems.length<MAX_GEM_FRAGS){
+              n.gemCollected=true;const gem={hue:n.gemHue,name:n.gemName};s.collectedGems.push(gem);
+              if(curPieceData)curPieceData.gemCount++;if(au.ready)au.gemCollect(gem.hue);hp.gemCollect();
+            }else{
+              const prog=Math.min(1,(n.gemTimer||0)/ORBIT_COLLECT_MS);
+              if(!nearestGemProgress||prog>nearestGemProgress.prog)nearestGemProgress={nx,ny,prog,hue:n.gemHue,name:n.gemName,size:n.baseSize};
             }
-          }
-        }else if(!n.isGem&&!n.isPiece&&!orbitNear&&!inProx&&s.orbitGemNodeId===n.id){
-          s.orbitGemNodeId=null;s.orbitGemTimer=0;
+          }else if(n.gemTimer>0){n.gemTimer=Math.max(0,n.gemTimer-2);}
         }
-
-        // 조각 노드
         if(n.isPiece&&!n.pieceCollected){
-          if(rate>0){
+          if(inProx||orbitNear){
+            const rate=orbitNear?PROX_RATE*ORBIT_BONUS:PROX_RATE;
             n.pieceOrbitTimer=(n.pieceOrbitTimer||0)+rate;
             if(n.pieceOrbitTimer>=ORBIT_COLLECT_MS*1.6){
-              n.pieceCollected=true;
-              const newInvPiece=makeInventoryPiece(n.pieceTheme,s.inventoryPieces.length);
-              s.inventoryPieces=[...s.inventoryPieces,newInvPiece];
-              s.puzzleFragments++;
-              hp.puzzlePieceGet();
+              n.pieceCollected=true;const newInvPiece=makeInventoryPiece(n.pieceTheme,s.inventoryPieces.length);
+              s.inventoryPieces=[...s.inventoryPieces,newInvPiece];s.puzzleFragments++;hp.puzzlePieceGet();
               const key=Date.now();
               setToasts(t=>[...t.slice(-2),{key,themeName:THEMES[n.pieceTheme].name}]);
               setTimeout(()=>setToasts(t=>t.filter(x=>x.key!==key)),2500);
             }
-          }else{
-            // 범위 벗어나면 천천히 감소 (기억은 유지)
-            if(n.pieceOrbitTimer>0)n.pieceOrbitTimer=Math.max(0,n.pieceOrbitTimer-2);
-          }
+          }else if(n.pieceOrbitTimer>0){n.pieceOrbitTimer=Math.max(0,n.pieceOrbitTimer-2);}
         }
       });
+      s._nearestGem=nearestGemProgress;
 
-      // 노드 업데이트
-      let deepCount=0;
+      // ── 노드 업데이트 ────────────────────────────────────────────────────────
       curNodes.forEach(n=>{
         const nx=s.sphere.col*PIECE_W+n.x,ny=s.sphere.row*PIECE_H+n.y;
         if(!inView(nx,ny,LIGHT_RADIUS*3)){n.brightness=Math.max(0,n.brightness-0.018);n.pulsePhase+=0.018;return;}
@@ -1006,15 +1002,10 @@ export default function SphereV9(){
           n.visits=Math.min(3,n.visits+0.003*tv);
           if(!n.hapticPlayed&&n.brightness>0.15){n.hapticPlayed=true;hp.nodeTouch(n.id);}
           if(!n.visited&&n.brightness>0.3){
-            n.visited=true;
-            if(curPieceData)curPieceData.explored++;
-            s.nodesForNextFrag++;
+            n.visited=true;if(curPieceData)curPieceData.explored++;s.nodesForNextFrag++;
             if(s.nodesForNextFrag>=NODES_PER_PUZZLE_FRAG){
-              s.nodesForNextFrag=0;s.puzzleFragments++;
-              hp.puzzlePieceGet();
-              const key=Date.now();
-              // 노드 방문으로 얻은 조각은 랜덤 테마
-              const randTheme=THEMES[Math.floor(Math.random()*THEMES.length)];
+              s.nodesForNextFrag=0;s.puzzleFragments++;hp.puzzlePieceGet();
+              const key=Date.now();const randTheme=THEMES[Math.floor(Math.random()*THEMES.length)];
               s.inventoryPieces=[...s.inventoryPieces,makeInventoryPiece(randTheme.id,s.inventoryPieces.length)];
               setToasts(t=>[...t.slice(-2),{key,themeName:randTheme.name}]);
               setTimeout(()=>setToasts(t=>t.filter(x=>x.key!==key)),2500);
@@ -1030,12 +1021,10 @@ export default function SphereV9(){
           if(!sat.soundPlayed&&sat.brightness>0.01&&au.ready){sat.soundPlayed=true;au.satSpawn(n.id);}
           if(!sat.hapticPlayed&&sat.brightness>0.01){sat.hapticPlayed=true;hp.satSpawn();}
         });
-        if(n.visits>0.5)deepCount++;
       });
 
       if(frame%18===0&&au.ready)curNodes.forEach(n=>{if(n.brightness>0.001||au.nodeOscs.has(n.id))au.tone(n.id,n.brightness);});
 
-      // 파티클 업데이트
       const curParticles=s.pieceParticles.get(s.currentPieceKey)||[];
       curParticles.forEach(p=>{
         p.wobble+=p.wobbleSpeed;p.x+=p.vx+Math.sin(p.wobble)*0.04;p.y+=p.vy;p.x+=p.drift;
@@ -1046,6 +1035,16 @@ export default function SphereV9(){
       s.detailAlpha+=((s.detailView&&!s.puzzleView?1:0)-s.detailAlpha)*0.09;
       s.puzzleAlpha+=((s.puzzleView?1:0)-s.puzzleAlpha)*0.07;
 
+      // ── 구슬 균열 애니메이션 ────────────────────────────────────────────────
+      if(s.detailView&&!s.puzzleView){
+        if(!s.shardPattern){s.shardPattern=generateShatterPattern(s.shardSeed);s.shatterPhase='whole';s.shatterTimer=0;s.shatterT=0;}
+        if(s.shatterPhase!=='done'){
+          const PHASE_DUR={whole:600,crack:900,split:500,reform:700};
+          s.shatterTimer+=16;const dur=PHASE_DUR[s.shatterPhase]||600;s.shatterT=Math.min(1,s.shatterTimer/dur);
+          if(s.shatterT>=1){const next={whole:'crack',crack:'split',split:'reform',reform:'done'};s.shatterPhase=next[s.shatterPhase]||'done';s.shatterTimer=0;s.shatterT=0;}
+        }
+      }
+
       if(frame%60===0){
         setStats({col:s.sphere.col,row:s.sphere.row,orbiting:!!s.orbit,
           fragments:s.puzzleFragments,gems:s.collectedGems.length,
@@ -1053,16 +1052,15 @@ export default function SphereV9(){
           nodesLeft:Math.max(0,NODES_PER_PUZZLE_FRAG-s.nodesForNextFrag)});
       }
 
-      // ══ DRAW ══════════════════════════════════════════════════════════════
+      // ══ DRAW ═══════════════════════════════════════════════════════════════
       const [bg0,bg1,bg2]=curTheme.bg;
       ctx.fillStyle=`rgb(${bg0},${bg1},${bg2})`;ctx.fillRect(0,0,cw,ch);
       const gNeb=ctx.createRadialGradient(cw*0.35,ch*0.3,0,cw*0.35,ch*0.3,cw*0.7);
       gNeb.addColorStop(0,`rgba(${bg0+12},${bg1+4},${bg2+25},0.5)`);gNeb.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=gNeb;ctx.fillRect(0,0,cw,ch);
 
-      // 공간의 끝 — 연결 없는 방향만 공허로 어두워짐
-      const lx=s.sphere.lx,ly=s.sphere.ly;
-      const VOID_MARGIN=2200;
+      // 공간의 끝 어두워짐
+      const lx=s.sphere.lx,ly=s.sphere.ly;const VOID_MARGIN=2200;
       const vConnL=s.placedMap.has(pk(s.sphere.col-1,s.sphere.row));
       const vConnR=s.placedMap.has(pk(s.sphere.col+1,s.sphere.row));
       const vConnT=s.placedMap.has(pk(s.sphere.col,s.sphere.row-1));
@@ -1070,14 +1068,10 @@ export default function SphereV9(){
       const dL=vConnL?VOID_MARGIN:lx,dR=vConnR?VOID_MARGIN:PIECE_W-lx;
       const dT=vConnT?VOID_MARGIN:ly,dB=vConnB?VOID_MARGIN:PIECE_H-ly;
       const voidness=Math.max(0,1-Math.min(dL,dR,dT,dB)/VOID_MARGIN)*0.82;
-      if(voidness>0.01){
-        const vg=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*0.2,cw/2,ch/2,Math.max(cw,ch)*0.8);
-        vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,`rgba(0,0,3,${voidness})`);
-        ctx.fillStyle=vg;ctx.fillRect(0,0,cw,ch);
-      }
+      if(voidness>0.01){const vg=ctx.createRadialGradient(cw/2,ch/2,Math.min(cw,ch)*0.2,cw/2,ch/2,Math.max(cw,ch)*0.8);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,`rgba(0,0,3,${voidness})`);ctx.fillStyle=vg;ctx.fillRect(0,0,cw,ch);}
+
       s.placedMap.forEach((_,k)=>{
-        const [c,r]=k.split(",").map(Number);
-        const ox=c*PIECE_W,oy=r*PIECE_H;
+        const [c,r]=k.split(",").map(Number);const ox=c*PIECE_W,oy=r*PIECE_H;
         const bx1=wx(ox),by1=wy(oy),bx2=wx(ox+PIECE_W),by2=wy(oy+PIECE_H);
         ctx.strokeStyle=k===s.currentPieceKey?"rgba(150,130,255,0.22)":"rgba(100,90,180,0.10)";
         ctx.lineWidth=1;ctx.setLineDash([8,14]);ctx.strokeRect(bx1,by1,bx2-bx1,by2-by1);ctx.setLineDash([]);
@@ -1102,28 +1096,22 @@ export default function SphereV9(){
         ctx.lineWidth=prog*2.2*Math.max(s.zoom,0.5);ctx.lineCap="round";ctx.stroke();
       }
 
-      // ★ 꾹 누르기(revealMode) 시 조각 노드에서 파문 발산
+      // revealMode 파문
       if(s.revealMode){
         curNodes.forEach(n=>{
           if(n.isPiece&&!n.pieceCollected){
             const nx=s.sphere.col*PIECE_W+n.x,ny=s.sphere.row*PIECE_H+n.y;
-            const sxn=wx(nx),syn=wy(ny);
-            const MAX_RIPPLE_R=PIECE_W*0.55*s.zoom;
+            const sxn=wx(nx),syn=wy(ny);const MAX_RIPPLE_R=PIECE_W*0.55*s.zoom;
             for(let ring=0;ring<3;ring++){
-              const phase=((s.time*0.22+ring/3)%1);
-              const rr=phase*MAX_RIPPLE_R;
-              const ra=(1-phase)*(1-phase)*0.45;
+              const phase=((s.time*0.22+ring/3)%1),rr=phase*MAX_RIPPLE_R,ra=(1-phase)*(1-phase)*0.45;
               if(ra<0.01)continue;
-              ctx.beginPath();ctx.arc(sxn,syn,rr,0,Math.PI*2);
-              ctx.strokeStyle=`rgba(255,225,100,${ra})`;
-              ctx.lineWidth=Math.max(0.5,(1-phase)*2.5);
-              ctx.stroke();
+              ctx.beginPath();ctx.arc(sxn,syn,rr,0,Math.PI*2);ctx.strokeStyle=`rgba(255,225,100,${ra})`;ctx.lineWidth=Math.max(0.5,(1-phase)*2.5);ctx.stroke();
             }
           }
         });
       }
 
-      // 노드 렌더
+      // ── 노드 렌더 ────────────────────────────────────────────────────────────
       const nh=curTheme.nodeHue;
       curNodes.forEach(n=>{
         const nx=s.sphere.col*PIECE_W+n.x,ny=s.sphere.row*PIECE_H+n.y;
@@ -1133,43 +1121,29 @@ export default function SphereV9(){
         const pulse=Math.sin(n.pulsePhase)*0.12+0.88,size=n.baseSize*(1+n.visits*0.5)*pulse;
         const hue=nh+n.visits*35,lgt=65+n.visits*10,lr=LIGHT_RADIUS*s.zoom;
         if(n.isPiece&&!n.pieceCollected){
-          // 조각 노드 — 팔각형, 흰빛, 반짝이는 느낌
           const sz=size*s.zoom*1.3;
           const glow=ctx.createRadialGradient(sxn,syn,0,sxn,syn,sz*7);
-          glow.addColorStop(0,`rgba(255,245,200,${n.brightness*0.5})`);
-          glow.addColorStop(0.4,`rgba(255,230,150,${n.brightness*0.15})`);
-          glow.addColorStop(1,"rgba(0,0,0,0)");
+          glow.addColorStop(0,`rgba(255,245,200,${n.brightness*0.5})`);glow.addColorStop(0.4,`rgba(255,230,150,${n.brightness*0.15})`);glow.addColorStop(1,"rgba(0,0,0,0)");
           ctx.fillStyle=glow;ctx.beginPath();ctx.arc(sxn,syn,sz*7,0,Math.PI*2);ctx.fill();
           ctx.save();ctx.translate(sxn,syn);ctx.rotate(s.time*0.4);
-          ctx.beginPath();
-          for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2;const r=i%2===0?sz:sz*0.65;ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);}
-          ctx.closePath();
+          ctx.beginPath();for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2;const r=i%2===0?sz:sz*0.65;ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);}ctx.closePath();
           const pg=ctx.createRadialGradient(-sz*0.3,-sz*0.3,0,0,0,sz);
-          pg.addColorStop(0,`rgba(255,255,240,${Math.max(n.brightness,0.35)})`);
-          pg.addColorStop(0.6,`rgba(255,220,100,${Math.max(n.brightness,0.25)})`);
-          pg.addColorStop(1,`rgba(200,150,50,${Math.max(n.brightness,0.15)})`);
-          ctx.fillStyle=pg;ctx.fill();
-          ctx.strokeStyle=`rgba(255,240,160,${Math.max(n.brightness,0.5)})`;ctx.lineWidth=0.8;ctx.stroke();
-          ctx.restore();
-          // 수집 진행 표시
+          pg.addColorStop(0,`rgba(255,255,240,${Math.max(n.brightness,0.35)})`);pg.addColorStop(0.6,`rgba(255,220,100,${Math.max(n.brightness,0.25)})`);pg.addColorStop(1,`rgba(200,150,50,${Math.max(n.brightness,0.15)})`);
+          ctx.fillStyle=pg;ctx.fill();ctx.strokeStyle=`rgba(255,240,160,${Math.max(n.brightness,0.5)})`;ctx.lineWidth=0.8;ctx.stroke();ctx.restore();
           if(n.pieceOrbitTimer>0){
             const prog=n.pieceOrbitTimer/(ORBIT_COLLECT_MS*1.8);
-            ctx.beginPath();ctx.arc(sxn,syn,sz*2,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);
-            ctx.strokeStyle=`rgba(255,220,100,0.85)`;ctx.lineWidth=2;ctx.lineCap="round";ctx.stroke();
+            ctx.beginPath();ctx.arc(sxn,syn,sz*2,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);ctx.strokeStyle=`rgba(255,220,100,0.85)`;ctx.lineWidth=2;ctx.lineCap="round";ctx.stroke();
             const tname=THEMES[n.pieceTheme]?.name||"";
-            ctx.fillStyle="rgba(255,230,140,0.8)";ctx.font="9px 'Courier New',monospace";ctx.textAlign="center";
-            ctx.fillText(`${tname} ${Math.round(prog*100)}%`,sxn,syn+sz*3.2);
+            ctx.fillStyle="rgba(255,230,140,0.8)";ctx.font="9px 'Courier New',monospace";ctx.textAlign="center";ctx.fillText(`${tname} ${Math.round(prog*100)}%`,sxn,syn+sz*3.2);
           }
         }else if(n.isPiece&&n.pieceCollected){
-          ctx.beginPath();ctx.arc(sxn,syn,size*0.5*s.zoom,0,Math.PI*2);
-          ctx.strokeStyle="rgba(255,220,100,0.18)";ctx.lineWidth=1;ctx.stroke();
+          ctx.beginPath();ctx.arc(sxn,syn,size*0.5*s.zoom,0,Math.PI*2);ctx.strokeStyle="rgba(255,220,100,0.18)";ctx.lineWidth=1;ctx.stroke();
         }else if(n.isGem&&!n.gemCollected){
           drawGem(ctx,sxn,syn,size,n.gemHue,Math.max(n.brightness,n.rangeReveal*0.35,0.18),s.time,n.sparkPhase,s.zoom);
-          if(s.orbitGemNodeId===n.id&&s.orbitGemTimer>0){
-            const prog=s.orbitGemTimer/ORBIT_COLLECT_MS;
-            ctx.beginPath();ctx.arc(sxn,syn,size*s.zoom*2.2,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);
-            ctx.strokeStyle=`hsla(${n.gemHue},90%,80%,0.9)`;ctx.lineWidth=2.5;ctx.lineCap="round";ctx.stroke();
-            if(prog>0.1){ctx.fillStyle=`hsla(${n.gemHue},80%,80%,0.85)`;ctx.font="9px 'Courier New',monospace";ctx.textAlign="center";ctx.fillText(`${n.gemName} ${Math.round(prog*100)}%`,sxn,syn+size*s.zoom*3.5);}
+          const prog=n.gemTimer?Math.min(1,n.gemTimer/ORBIT_COLLECT_MS):0;
+          if(prog>0.02){
+            ctx.beginPath();ctx.arc(sxn,syn,size*s.zoom*2.2,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);ctx.strokeStyle=`hsla(${n.gemHue},90%,80%,0.9)`;ctx.lineWidth=2.5;ctx.lineCap="round";ctx.stroke();
+            if(prog>0.12){ctx.fillStyle=`hsla(${n.gemHue},80%,80%,0.85)`;ctx.font="9px 'Courier New',monospace";ctx.textAlign="center";ctx.fillText(`${n.gemName} ${Math.round(prog*100)}%`,sxn,syn+size*s.zoom*3.5);}
           }
         }else if(!n.isGem){
           if(n.rangeReveal>0.01){const rev=n.rangeReveal;const rg=ctx.createRadialGradient(sxn,syn,0,sxn,syn,lr);rg.addColorStop(0,`hsla(${hue},50%,${lgt}%,${rev*0.05})`);rg.addColorStop(1,`hsla(${hue},50%,${lgt}%,0)`);ctx.fillStyle=rg;ctx.beginPath();ctx.arc(sxn,syn,lr,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(sxn,syn,lr,0,Math.PI*2);ctx.strokeStyle=`hsla(${hue},55%,${lgt}%,${rev*0.38})`;ctx.lineWidth=1.2;ctx.setLineDash([6,5]);ctx.stroke();ctx.setLineDash([]);}
@@ -1194,31 +1168,36 @@ export default function SphereV9(){
         ctx.beginPath();ctx.arc(ocx,ocy,s.orbit.radius*s.zoom,0,Math.PI*2);ctx.strokeStyle="rgba(160,150,240,0.14)";ctx.lineWidth=1;ctx.setLineDash([5,8]);ctx.stroke();ctx.setLineDash([]);
       }
 
-      // ★ 벽 충돌 이펙트
+      // wallFlash
       if(s.wallFlash){
         s.wallFlash.t-=0.045;
         if(s.wallFlash.t<=0){s.wallFlash=null;}
         else{
-          const fx=wx(s.wallFlash.wx),fy=wy(s.wallFlash.wy);
-          const ft=s.wallFlash.t;
-          const fr=(1-ft)*80*s.zoom; // 퍼지는 반경
-          ctx.beginPath();ctx.arc(fx,fy,Math.max(2,fr),0,Math.PI*2);
-          ctx.strokeStyle=`rgba(180,160,255,${ft*0.7})`;ctx.lineWidth=2;ctx.stroke();
-          ctx.beginPath();ctx.arc(fx,fy,Math.max(1,fr*0.5),0,Math.PI*2);
-          ctx.strokeStyle=`rgba(220,200,255,${ft*0.5})`;ctx.lineWidth=1;ctx.stroke();
-          // 작은 파편들
-          for(let i=0;i<6;i++){
-            const pa=(i/6)*Math.PI*2,pr=fr*(0.6+Math.sin(ft*8+i)*0.3);
-            ctx.beginPath();ctx.arc(fx+Math.cos(pa)*pr,fy+Math.sin(pa)*pr,1.5,0,Math.PI*2);
-            ctx.fillStyle=`rgba(200,180,255,${ft*0.6})`;ctx.fill();
-          }
+          const fx=wx(s.wallFlash.wx),fy=wy(s.wallFlash.wy),ft=s.wallFlash.t,fr=(1-ft)*80*s.zoom;
+          ctx.beginPath();ctx.arc(fx,fy,Math.max(2,fr),0,Math.PI*2);ctx.strokeStyle=`rgba(180,160,255,${ft*0.7})`;ctx.lineWidth=2;ctx.stroke();
+          ctx.beginPath();ctx.arc(fx,fy,Math.max(1,fr*0.5),0,Math.PI*2);ctx.strokeStyle=`rgba(220,200,255,${ft*0.5})`;ctx.lineWidth=1;ctx.stroke();
+          for(let i=0;i<6;i++){const pa=(i/6)*Math.PI*2,pr=fr*(0.6+Math.sin(ft*8+i)*0.3);ctx.beginPath();ctx.arc(fx+Math.cos(pa)*pr,fy+Math.sin(pa)*pr,1.5,0,Math.PI*2);ctx.fillStyle=`rgba(200,180,255,${ft*0.6})`;ctx.fill();}
         }
       }
+
       if(s.orbitPreview){
         const pcx=wx(s.orbitPreview.wx),pcy=wy(s.orbitPreview.wy);
         ctx.beginPath();ctx.arc(pcx,pcy,s.orbitPreview.radius*s.zoom,0,Math.PI*2);ctx.strokeStyle="rgba(180,170,255,0.3)";ctx.lineWidth=1.2;ctx.setLineDash([5,7]);ctx.stroke();ctx.setLineDash([]);
         ctx.beginPath();ctx.arc(pcx,pcy,5,0,Math.PI*2);ctx.fillStyle="rgba(200,190,255,0.55)";ctx.fill();
       }
+
+      // ★ 조이스틱 시각 피드백 — 드래그 중 시작점에 작은 십자
+      if(s.isDragging&&s.pressScreenStart&&!s.orbit&&!s.detailView&&!s.puzzleView&&!s.zoomedOut){
+        const jx=s.pressScreenStart.x,jy=s.pressScreenStart.y;
+        // 현재 손가락 위치 방향 벡터
+        ctx.save();
+        ctx.strokeStyle="rgba(200,190,255,0.22)";ctx.lineWidth=1;ctx.setLineDash([3,5]);
+        ctx.beginPath();ctx.arc(jx,jy,32,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+        ctx.beginPath();ctx.moveTo(jx-8,jy);ctx.lineTo(jx+8,jy);ctx.moveTo(jx,jy-8);ctx.lineTo(jx,jy+8);
+        ctx.strokeStyle="rgba(200,190,255,0.35)";ctx.lineWidth=1;ctx.stroke();
+        ctx.restore();
+      }
+
       if(s.pressStart&&!s.isDragging&&s.pressWorld&&!s.revealMode){
         const pcx=wx(s.pressWorld.wx),pcy=wy(s.pressWorld.wy),prog=s.pressProgress;
         ctx.beginPath();ctx.arc(pcx,pcy,12,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);ctx.strokeStyle=`rgba(200,190,255,${0.3+prog*0.5})`;ctx.lineWidth=2;ctx.stroke();
@@ -1229,16 +1208,12 @@ export default function SphereV9(){
       const warmth=Math.min(1,s.collectedGems.length/12);
       const ssz=(7+Math.sin(s.time*2)*0.5)*s.zoom;
       const gLight=ctx.createRadialGradient(spx,spy,0,spx,spy,LIGHT_RADIUS*s.zoom);
-      gLight.addColorStop(0,`rgba(${Math.round(175+warmth*55)},${Math.round(165+warmth*30)},${Math.round(255-warmth*120)},${0.07+warmth*0.05})`);
-      gLight.addColorStop(1,"rgba(0,0,0,0)");
+      gLight.addColorStop(0,`rgba(${Math.round(175+warmth*55)},${Math.round(165+warmth*30)},${Math.round(255-warmth*120)},${0.07+warmth*0.05})`);gLight.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=gLight;ctx.beginPath();ctx.arc(spx,spy,LIGHT_RADIUS*s.zoom,0,Math.PI*2);ctx.fill();
       const gs=ctx.createRadialGradient(spx-ssz*0.3,spy-ssz*0.3,0,spx,spy,ssz*1.6);
-      gs.addColorStop(0,`rgba(255,${Math.round(255-warmth*18)},${Math.round(255-warmth*55)},1)`);
-      gs.addColorStop(0.4,`rgba(${Math.round(220+warmth*30)},${Math.round(215+warmth*10)},${Math.round(255-warmth*80)},0.95)`);
-      gs.addColorStop(1,"rgba(0,0,0,0)");
+      gs.addColorStop(0,`rgba(255,${Math.round(255-warmth*18)},${Math.round(255-warmth*55)},1)`);gs.addColorStop(0.4,`rgba(${Math.round(220+warmth*30)},${Math.round(215+warmth*10)},${Math.round(255-warmth*80)},0.95)`);gs.addColorStop(1,"rgba(0,0,0,0)");
       ctx.fillStyle=gs;ctx.beginPath();ctx.arc(spx,spy,ssz*1.6,0,Math.PI*2);ctx.fill();
-      ctx.beginPath();ctx.arc(spx,spy,ssz,0,Math.PI*2);
-      ctx.fillStyle=`rgba(255,${Math.round(255-warmth*18)},${Math.round(255-warmth*55)},0.97)`;ctx.fill();
+      ctx.beginPath();ctx.arc(spx,spy,ssz,0,Math.PI*2);ctx.fillStyle=`rgba(255,${Math.round(255-warmth*18)},${Math.round(255-warmth*55)},0.97)`;ctx.fill();
       if(warmth>0.05){ctx.beginPath();ctx.arc(spx,spy,ssz*1.06,0,Math.PI*2);ctx.strokeStyle=`rgba(255,195,50,${warmth*0.4})`;ctx.lineWidth=0.8*s.zoom;ctx.stroke();}
 
       // 퍼즐 판 오버레이
@@ -1246,8 +1221,8 @@ export default function SphereV9(){
         drawPuzzleBoard(ctx,cw,ch,{placedMap:s.placedMap,currentPieceKey:s.currentPieceKey,inventoryPieces:s.inventoryPieces,selectedInventoryId:s.selectedInventoryId,puzzleFragments:s.puzzleFragments},s.time,s.puzzleAlpha);
 
       // 구체 디테일 오버레이
-      if(s.detailAlpha>0.01)
-        drawSphereDetail(ctx,cw,ch,s.collectedGems,s.time,s.detailAlpha);
+      if(s.detailAlpha>0.01&&s.shardPattern)
+        drawSphereDetail(ctx,cw,ch,s.collectedGems,s.shardPattern,s.shatterPhase,s.shatterT,s.time,s.detailAlpha);
 
       animRef.current=requestAnimationFrame(draw);
     };
@@ -1266,19 +1241,16 @@ export default function SphereV9(){
       `}</style>
       <canvas ref={canvasRef} style={{flex:1,width:"100%",touchAction:"none",cursor:"default"}}/>
 
-      {/* 획득 토스트 */}
       {toasts.map(t=><PieceToast key={t.key} themeName={t.themeName}/>)}
 
       {/* 상단 좌 */}
       <div style={{position:"absolute",top:14,left:16,display:"flex",flexDirection:"column",gap:"4px"}}>
         <span style={{color:td,fontSize:"10px",letterSpacing:"0.13em"}}>
-          {stats.puzzleView?"◎ 퍼즐 판":stats.orbiting?`⟳ 공전 r=${stats.radius}`:`→ ${stats.themeName}`}
+          {stats.puzzleView?"◎ 퍼즐 판":stats.orbiting?"⟳ 공전":`→ ${stats.themeName}`}
         </span>
-        {/* 퍼즐 조각 카운터: 2개 이하일 때만 표시 */}
         {stats.fragments<=2&&<span style={{color:tg,fontSize:"10px",opacity:stats.fragments===0?0.4:1}}>
           ✦ 퍼즐 조각 {stats.fragments===0?"없음":`×${stats.fragments}`}
         </span>}
-        {/* 다음 조각까지 남은 노드 수: 조각이 적을 때만 */}
         {stats.fragments<=2&&stats.nodesLeft>0&&<span style={{color:"rgba(200,185,140,0.45)",fontSize:"9px"}}>
           노드 {stats.nodesLeft}개 더 →
         </span>}
@@ -1310,7 +1282,7 @@ export default function SphereV9(){
         <span style={{color:"rgba(110,100,170,0.28)",fontSize:"9px",letterSpacing:"0.09em",whiteSpace:"nowrap"}}>
           {stats.puzzleView
             ?"조각 탭 → 선택 · 점선 탭 → 배치  |  🗺 또는 더블탭 → 돌아가기"
-            :"드래그 방향 · 꾹 범위 · 더블탭 줌아웃 · 줌아웃+탭 취소 · 줌아웃+드래그 공전 · 🗺 퍼즐"}
+            :"누른 곳 기준 드래그 방향 · 꾹 범위 · 더블탭 줌아웃 · 🗺 퍼즐"}
         </span>
       </div>
     </div>
