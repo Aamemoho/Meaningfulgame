@@ -32,6 +32,10 @@ const THEMES = [
   {id:4, name:"황금",  bg:[10,8,2],    nodeHue:48,  partHue:45,  boardColor:"rgba(255,210,60,0.8)"},
 ];
 
+// ─── 항성(별) 상수 ─────────────────────────────────────────────────────────────
+const STAR_AMBIENT = 0.12;     // 탐험 중 멀리서도 보이는 최소 밝기
+const STAR_LIGHT_RADIUS = 900; // 별 감지 반경 (일반 노드의 4.5배)
+
 const pk = (col,row) => `${col},${row}`;
 const DIRS = [
   {dc:1, dr:0, wall:"right",  entry:"left",   ax:"x", sign:1},
@@ -122,11 +126,13 @@ class AudioEngine{
   }
 
   init(){
-    if(this.ready){this.ctx.resume();return;}
-    this.ctx=new(window.AudioContext||window.webkitAudioContext)();
-    this.master=this.ctx.createGain();this.master.gain.value=0.6;
-    this.master.connect(this.ctx.destination);
-    this._rev();this._baseAmb();this.ready=true;
+    if(this.ready){try{this.ctx.resume();}catch(_){}return;}
+    try{
+      this.ctx=new(window.AudioContext||window.webkitAudioContext)();
+      this.master=this.ctx.createGain();this.master.gain.value=0.6;
+      this.master.connect(this.ctx.destination);
+      this._rev();this._baseAmb();this.ready=true;
+    }catch(e){console.warn("Audio init failed",e);}
   }
 
   _rev(){
@@ -394,7 +400,78 @@ function seededRng(seed){
   return()=>{s=Math.imul(s^(s>>>16),0x45d9f3b);s=Math.imul(s^(s>>>16),0x45d9f3b);s^=s>>>16;return(s>>>0)/0xffffffff;};
 }
 
-// ─── 랜덤 균열 패턴 생성 ─────────────────────────────────────────────────────
+// ─── 조각별 항성 생성 (시드 기반 — 항상 같은 위치) ─────────────────────────
+function pieceKeySeed(key){
+  let h=2166136261;
+  for(let i=0;i<key.length;i++){h^=key.charCodeAt(i);h=Math.imul(h,16777619);}
+  return h>>>0;
+}
+
+function generateStarForPiece(pieceKey){
+  const rng=seededRng(pieceKeySeed(pieceKey));
+  const rs=(a,b)=>a+rng()*(b-a);
+  const count=rng()<0.28?2:1; // 72% 1개, 28% 2개
+  return Array.from({length:count},(_,i)=>({
+    id:`star-${pieceKey}-${i}`,
+    x:rs(1200,PIECE_W-1200),
+    y:rs(1200,PIECE_H-1200),
+    hue:rs(40,65),       // 따뜻한 황금-흰빛
+    phase:rng()*Math.PI*2,
+    size:rs(13,19),
+    brightness:STAR_AMBIENT,  // 항상 최소한 보임
+    discovered:false,         // 플레이어가 가까이 간 적 있는지
+  }));
+}
+
+
+// ─── 퍼즐 판 항성 타입 (감각/감정 성격별 시각 언어) ──────────────────────────
+const BOARD_STAR_TYPES=[
+  // 차가운: 날카롭고 맑은 — 6방 광선, 빠른 자전, 푸른빛
+  {name:"차가운", h0:198, h1:218, rayN:6, raySpd:0.30, rayLen:3.8, rayW:0.14,
+   pulseSpd:1.9, glowMult:1.3, glowAlpha:0.52, coreAlpha:0.95},
+  // 따뜻한: 부드럽고 넓은 — 4방 광선, 느린 자전, 호박빛
+  {name:"따뜻한", h0:30,  h1:50,  rayN:4, raySpd:0.10, rayLen:2.8, rayW:0.18,
+   pulseSpd:0.85, glowMult:2.0, glowAlpha:0.45, coreAlpha:0.90},
+  // 깊은: 육중하고 광활한 — 4방 광선, 매우 느림, 진보라
+  {name:"깊은",   h0:258, h1:278, rayN:4, raySpd:0.06, rayLen:2.2, rayW:0.22,
+   pulseSpd:0.55, glowMult:2.8, glowAlpha:0.38, coreAlpha:0.85},
+  // 가벼운: 경쾌하고 반짝이는 — 8방 광선, 빠른 떨림, 연황
+  {name:"가벼운", h0:55,  h1:75,  rayN:8, raySpd:0.40, rayLen:4.5, rayW:0.10,
+   pulseSpd:2.6, glowMult:1.1, glowAlpha:0.48, coreAlpha:0.88},
+  // 강렬한: 압도적이고 뜨거운 — 6방 광선, 강한 광휘, 붉은빛
+  {name:"강렬한", h0:8,   h1:25,  rayN:6, raySpd:0.20, rayLen:4.2, rayW:0.16,
+   pulseSpd:1.4, glowMult:1.7, glowAlpha:0.60, coreAlpha:0.98},
+];
+
+function generateBoardStars(){
+  const rng=seededRng(0xB0A2D5F1);
+  const rs=(a,b)=>a+rng()*(b-a);
+  // 정수 조각 좌표 + 조각 내 랜덤 오프셋 [0.15, 0.85]
+  // → Math.floor(col) 가 항상 정확히 그 조각을 가리킴
+  const PIECE_COORDS=[
+    // 가까운 거리 (1~3칸)
+    {c:2,  r:-2}, {c:-2, r:2},  {c:2,  r:2},  {c:-2, r:-2},
+    // 중간 거리 (3~5칸)
+    {c:4,  r:-1}, {c:-4, r:1},  {c:1,  r:4},  {c:-1, r:-4},
+    {c:4,  r:3},  {c:-4, r:-3},
+    // 먼 거리 (5~7칸 — 장기 목표)
+    {c:6,  r:-2}, {c:-6, r:2},  {c:2,  r:6},  {c:-2, r:-6},
+    {c:5,  r:5},  {c:-5, r:-5},
+  ];
+  return PIECE_COORDS.map(({c,r},i)=>({
+    id:`bs-${i}`,
+    col:c+rs(0.18,0.82),   // 조각 내부 위치 (항상 Math.floor → c)
+    row:r+rs(0.18,0.82),
+    typeIdx:Math.floor(rng()*BOARD_STAR_TYPES.length),
+    size:rs(9,17),
+    phase:rng()*Math.PI*2,
+    discovered:false,
+  }));
+}
+
+// 싱글턴 — 항상 같은 우주에 같은 별들
+const BOARD_STARS=generateBoardStars();
+
 function generateShatterPattern(seed){
   const rng=seededRng(seed);
   const shards=[];
@@ -545,32 +622,52 @@ function drawPuzzleBoard(ctx,cw,ch,state,time,alpha){
   const neb=ctx.createRadialGradient(cw*0.5,ch*0.45,0,cw*0.5,ch*0.45,Math.max(cw,ch)*0.65);
   neb.addColorStop(0,"rgba(20,8,55,0.5)");neb.addColorStop(1,"rgba(0,0,0,0)");
   ctx.fillStyle=neb;ctx.fillRect(0,0,cw,ch);
-  const {placedMap,currentPieceKey,inventoryPieces,selectedInventoryId,puzzleFragments}=state;
+  const {placedMap,currentPieceKey,inventoryPieces,selectedInventoryId,puzzleFragments,boardCam,pieceStars,sphere}=state;
+  const bcx=boardCam?.x||0,bcy=boardCam?.y||0;
+  const bz=state.boardZoom||1.0;
   let minC=Infinity,maxC=-Infinity,minR=Infinity,maxR=-Infinity;
   placedMap.forEach((_,k)=>{const [c,r]=k.split(",").map(Number);minC=Math.min(minC,c);maxC=Math.max(maxC,c);minR=Math.min(minR,r);maxR=Math.max(maxR,r);});
   const gridW=maxC-minC+1,gridH=maxR-minR+1;
   const boardAreaH=ch*0.62;
   const pieceSize=Math.min(Math.min(cw*0.82/Math.max(gridW+2,3),boardAreaH/Math.max(gridH+2,3)),120);
-  const gap=pieceSize*0.12,stride=pieceSize+gap;
+  const gap=pieceSize*0.12,stride=(pieceSize+gap)*bz;
+  // 실제 화면상 조각 크기
+  const psSc=pieceSize*bz;
   const boardCX=cw/2,boardCY=ch*0.36;
-  const toSX=(col)=>boardCX+(col-minC-(gridW-1)/2)*stride;
-  const toSY=(row)=>boardCY+(row-minR-(gridH-1)/2)*stride;
+  const toSX=(col)=>boardCX+((col-minC-(gridW-1)/2)*stride)*bz+bcx;
+  const toSY=(row)=>boardCY+((row-minR-(gridH-1)/2)*stride)*bz+bcy;
+
+  // BOARD_STARS discovered 감지 (렌더는 조각들 위에서 별도로)
+  BOARD_STARS.forEach(star=>{
+    if(!star.discovered){
+      placedMap.forEach((_,k)=>{
+        const [pc,pr]=k.split(",").map(Number);
+        if(Math.hypot(pc-star.col,pr-star.row)<1.8)star.discovered=true;
+      });
+    }
+  });
   const validSlots=new Set();
   if(selectedInventoryId){
     placedMap.forEach((_,k)=>{const [c,r]=k.split(",").map(Number);DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(!placedMap.has(nk))validSlots.add(nk);});});
   }
   validSlots.forEach(k=>{
     const [c,r]=k.split(",").map(Number);const sx=toSX(c),sy=toSY(r);
+    // 이 슬롯에 BOARD_STAR가 있으면 힌트 글로우 추가
+    const slotHasStar=BOARD_STARS.some(bs=>Math.floor(bs.col)===c&&Math.floor(bs.row)===r);
     ctx.save();ctx.translate(sx,sy);
-    ctx.strokeStyle="rgba(180,160,255,0.45)";ctx.lineWidth=1.5;ctx.setLineDash([5,6]);
-    ctx.strokeRect(-pieceSize/2,-pieceSize/2,pieceSize,pieceSize);ctx.setLineDash([]);
-    ctx.fillStyle="rgba(140,120,220,0.08)";ctx.fillRect(-pieceSize/2,-pieceSize/2,pieceSize,pieceSize);
-    ctx.fillStyle="rgba(180,160,255,0.4)";ctx.font=`${Math.round(pieceSize*0.22)}px serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("+",0,0);ctx.restore();
+    ctx.strokeStyle=slotHasStar?"rgba(255,220,120,0.65)":"rgba(180,160,255,0.45)";
+    ctx.lineWidth=slotHasStar?2:1.5;ctx.setLineDash([5,6]);
+    ctx.strokeRect(-psSc/2,-psSc/2,psSc,psSc);ctx.setLineDash([]);
+    ctx.fillStyle=slotHasStar?"rgba(255,200,80,0.10)":"rgba(140,120,220,0.08)";
+    ctx.fillRect(-psSc/2,-psSc/2,psSc,psSc);
+    ctx.fillStyle=slotHasStar?"rgba(255,215,100,0.55)":"rgba(180,160,255,0.4)";
+    ctx.font=`${Math.round(psSc*0.22)}px serif`;ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(slotHasStar?"✦":"+",0,0);ctx.restore();
   });
   placedMap.forEach((pieceData,k)=>{
     const [c,r]=k.split(",").map(Number);const sx=toSX(c),sy=toSY(r);
     const isCurrent=k===currentPieceKey,theme=THEMES[pieceData.themeId];
-    const pulse=isCurrent?Math.sin(time*1.5)*0.04+0.96:1,ps=pieceSize*pulse;
+    const pulse=isCurrent?Math.sin(time*1.5)*0.04+0.96:1,ps=psSc*pulse;
     const exploreRatio=Math.min(1,pieceData.explored/(NODES_PER_PIECE*0.5));
     ctx.save();ctx.translate(sx,sy);
     const grad=ctx.createLinearGradient(-ps/2,-ps/2,ps/2,ps/2);
@@ -591,9 +688,117 @@ function drawPuzzleBoard(ctx,cw,ch,state,time,alpha){
     DIRS.forEach(d=>{const nk=pk(c+d.dc,r+d.dr);if(placedMap.has(nk)){const ex=d.dc*ps/2,ey=d.dr*ps/2;ctx.beginPath();ctx.moveTo(ex-d.dr*4,ey-d.dc*4);ctx.lineTo(ex+d.dr*4,ey+d.dc*4);ctx.strokeStyle=theme.boardColor.replace("0.8","0.5");ctx.lineWidth=2;ctx.stroke();}});
     ctx.restore();
   });
+
+  // ── 항성 렌더 (배치된 조각 위 비례 위치) ─────────────────────────────────
+  if(pieceStars){
+    placedMap.forEach((_,k)=>{
+      const stars=pieceStars.get(k);if(!stars)return;
+      const [c,r]=k.split(",").map(Number);
+      const pLeft=toSX(c)-psSc/2,pTop=toSY(r)-psSc/2;
+      stars.forEach(star=>{
+        const sx=pLeft+(star.x/PIECE_W)*psSc;
+        const sy=pTop+(star.y/PIECE_H)*psSc;
+        const pulse=Math.sin(time*1.1+star.phase)*0.25+0.75;
+        const bri=star.discovered?0.95:0.55;
+        const gr=ctx.createRadialGradient(sx,sy,0,sx,sy,psSc*0.20);
+        gr.addColorStop(0,`hsla(${star.hue},90%,92%,${bri*pulse*0.60})`);
+        gr.addColorStop(0.5,`hsla(${star.hue},80%,72%,${bri*pulse*0.15})`);
+        gr.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=gr;ctx.beginPath();ctx.arc(sx,sy,psSc*0.20,0,Math.PI*2);ctx.fill();
+        const rayL=psSc*0.09*pulse;
+        ctx.save();ctx.translate(sx,sy);
+        [0,1,2,3].forEach(ri=>{
+          ctx.save();ctx.rotate(ri*Math.PI/2+time*0.18);
+          ctx.beginPath();ctx.moveTo(0,-rayL*0.18);ctx.lineTo(0,-rayL);
+          ctx.strokeStyle=`hsla(${star.hue},90%,94%,${bri*pulse*0.88})`;
+          ctx.lineWidth=Math.max(0.7,psSc*0.013);ctx.lineCap="round";ctx.stroke();
+          ctx.restore();
+        });
+        [0,1,2,3].forEach(ri=>{
+          ctx.save();ctx.rotate(ri*Math.PI/2+Math.PI/4+time*0.18);
+          ctx.beginPath();ctx.moveTo(0,-rayL*0.12);ctx.lineTo(0,-rayL*0.50);
+          ctx.strokeStyle=`hsla(${star.hue},85%,88%,${bri*pulse*0.48})`;
+          ctx.lineWidth=Math.max(0.5,psSc*0.008);ctx.lineCap="round";ctx.stroke();
+          ctx.restore();
+        });
+        ctx.beginPath();ctx.arc(0,0,Math.max(1.5,psSc*0.026),0,Math.PI*2);
+        ctx.fillStyle=`hsla(${star.hue},75%,97%,${bri*pulse})`;ctx.fill();
+        ctx.restore();
+        if(star.discovered){
+          ctx.beginPath();ctx.arc(sx,sy,psSc*0.055,0,Math.PI*2);
+          ctx.strokeStyle=`hsla(${star.hue},70%,80%,0.38)`;ctx.lineWidth=0.8;ctx.stroke();
+        }
+      });
+    });
+  }
+
+  // ── 퍼즐 판 위 구 위치 표시기 ────────────────────────────────────────────
+  if(sphere&&placedMap.has(pk(sphere.col,sphere.row))){
+    const spx=toSX(sphere.col)-psSc/2+(sphere.lx/PIECE_W)*psSc;
+    const spy=toSY(sphere.row)-psSc/2+(sphere.ly/PIECE_H)*psSc;
+    const pulse=Math.sin(time*2.8)*0.22+0.78;
+    const sg=ctx.createRadialGradient(spx,spy,0,spx,spy,psSc*0.16);
+    sg.addColorStop(0,"rgba(255,255,255,0.40)");sg.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.fillStyle=sg;ctx.beginPath();ctx.arc(spx,spy,psSc*0.16,0,Math.PI*2);ctx.fill();
+    const ringR=Math.max(3,psSc*0.075)*(1.6-pulse*0.6);
+    ctx.beginPath();ctx.arc(spx,spy,ringR,0,Math.PI*2);
+    ctx.strokeStyle=`rgba(255,255,255,${(pulse-0.5)*0.7})`;ctx.lineWidth=0.9;ctx.stroke();
+    ctx.beginPath();ctx.arc(spx,spy,Math.max(2,psSc*0.032)*pulse,0,Math.PI*2);
+    ctx.fillStyle="rgba(255,255,255,0.97)";ctx.fill();
+    ctx.fillStyle=`rgba(255,255,255,${0.38*pulse})`;
+    ctx.font=`${Math.round(Math.max(7,psSc*0.08))}px 'Courier New',monospace`;
+    ctx.textAlign="center";ctx.textBaseline="bottom";
+    ctx.fillText("나",spx,spy-Math.max(3,psSc*0.04)-1);
+  }
+
+  // ── BOARD_STARS 렌더 — 조각/표시기 위에 그려서 가리지 않음 ─────────────────
+  BOARD_STARS.forEach(star=>{
+    const sx=toSX(star.col),sy=toSY(star.row);
+    if(sx<-300||sx>cw+300||sy<-300||sy>ch+300)return;
+    const t=BOARD_STAR_TYPES[star.typeIdx];
+    const pulse=Math.sin(time*t.pulseSpd+star.phase)*0.22+0.78;
+    const bri=star.discovered?0.92:0.62;
+    const sz=Math.max(4,star.size*(pieceSize/100));
+    const glowR=sz*t.glowMult*3.5;
+    const gr=ctx.createRadialGradient(sx,sy,0,sx,sy,glowR);
+    gr.addColorStop(0,`hsla(${t.h0},88%,90%,${bri*pulse*t.glowAlpha})`);
+    gr.addColorStop(0.45,`hsla(${t.h1},75%,72%,${bri*pulse*t.glowAlpha*0.25})`);
+    gr.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle=gr;ctx.beginPath();ctx.arc(sx,sy,glowR,0,Math.PI*2);ctx.fill();
+    ctx.save();ctx.translate(sx,sy);ctx.rotate(time*t.raySpd+star.phase);
+    for(let ri=0;ri<t.rayN;ri++){
+      ctx.save();ctx.rotate(ri*Math.PI*2/t.rayN);
+      const rl=sz*t.rayLen*pulse;
+      ctx.beginPath();ctx.moveTo(0,-sz*0.28);ctx.lineTo(0,-rl);
+      ctx.strokeStyle=`hsla(${t.h0},90%,95%,${bri*pulse*0.88})`;
+      ctx.lineWidth=Math.max(0.5,sz*t.rayW);ctx.lineCap="round";ctx.stroke();
+      ctx.restore();
+    }
+    for(let ri=0;ri<t.rayN;ri++){
+      ctx.save();ctx.rotate(ri*Math.PI*2/t.rayN+Math.PI/t.rayN);
+      const rl=sz*t.rayLen*0.48*pulse;
+      ctx.beginPath();ctx.moveTo(0,-sz*0.18);ctx.lineTo(0,-rl);
+      ctx.strokeStyle=`hsla(${t.h1},80%,88%,${bri*pulse*0.42})`;
+      ctx.lineWidth=Math.max(0.4,sz*t.rayW*0.6);ctx.lineCap="round";ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath();ctx.arc(0,0,sz*pulse,0,Math.PI*2);
+    const cg=ctx.createRadialGradient(-sz*0.22,-sz*0.22,0,0,0,sz*pulse);
+    cg.addColorStop(0,`hsla(${t.h0},55%,99%,${bri*t.coreAlpha})`);
+    cg.addColorStop(0.45,`hsla(${t.h0},80%,88%,${bri*t.coreAlpha*0.9})`);
+    cg.addColorStop(1,`hsla(${t.h1},70%,65%,${bri*t.coreAlpha*0.7})`);
+    ctx.fillStyle=cg;ctx.fill();
+    ctx.restore();
+    const labelA=star.discovered?0.55:0.28;
+    ctx.fillStyle=`hsla(${t.h0},70%,82%,${labelA*pulse})`;
+    ctx.font=`${Math.round(Math.max(7,sz*0.65))}px 'Courier New',monospace`;
+    ctx.textAlign="center";ctx.textBaseline="top";
+    ctx.fillText(t.name,sx,sy+sz*pulse+4);
+  });
+
   const invCX=cw/2,invCY=ch/2,scatterR=Math.min(cw,ch)*0.42;
   inventoryPieces.forEach((inv,idx)=>{
-    const sx=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist,sy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist;
+    const sx=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist+bcx,sy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist+bcy;
     const theme=THEMES[inv.themeId],isSelected=inv.id===selectedInventoryId;
     const ps=pieceSize*(isSelected?0.62:0.52),pulse=isSelected?Math.sin(time*3)*0.06+0.94:1;
     ctx.save();ctx.translate(sx,sy);ctx.rotate(inv.rotation);
@@ -640,6 +845,7 @@ export default function SphereV9(){
   const initPlaced=()=>{const m=new Map();m.set("0,0",{themeId:0,explored:0,gemCount:0});return m;};
   const initNodes=()=>{const m=new Map();m.set("0,0",generatePieceNodes(0));return m;};
   const initParts=()=>{const m=new Map();m.set("0,0",Array.from({length:PARTICLE_COUNT},()=>makeParticle(0)));return m;};
+  const initStars=()=>{const m=new Map();m.set("0,0",generateStarForPiece("0,0"));return m;};
 
   const stateRef=useRef({
     sphere:{col:0,row:0,lx:PIECE_W/2,ly:PIECE_H/2},
@@ -649,6 +855,7 @@ export default function SphereV9(){
     placedMap:initPlaced(),
     pieceNodes:initNodes(),
     pieceParticles:initParts(),
+    pieceStars:initStars(),
     currentPieceKey:"0,0",
     inventoryPieces:[],
     selectedInventoryId:null,
@@ -672,10 +879,16 @@ export default function SphereV9(){
     pressScreenStart:null,isDragging:false,revealMode:false,
     prevOrbitActive:false,
     toastKey:0,toastCount:0,showToast:false,
+    // ★ 퍼즐 판 패닝 + 줌
+    boardCam:{x:0,y:0},
+    boardZoom:1.0,
+    boardPinchDist:null,boardPinchZoomStart:1.0,
+    boardIsDragging:false,boardDragLast:null,boardDragTotal:0,
   });
 
   const animRef=useRef(null);
   const pressTimerRef=useRef(null);
+  const pinchRef=useRef(null); // 핀치 줌 상태
   const [muted,setMuted]=useState(false);
   const [hapticOn,setHapticOn]=useState(true);
   const [hapticSupported]=useState(()=>"vibrate"in navigator);
@@ -686,8 +899,19 @@ export default function SphereV9(){
   useEffect(()=>{haptic.current.setMuted(!hapticOn);},[hapticOn]);
   useEffect(()=>()=>audio.current.destroy(),[]);
 
-  const initCanvas=useCallback(()=>{const c=canvasRef.current;if(!c)return;c.width=c.offsetWidth;c.height=c.offsetHeight;},[]);
-  useEffect(()=>{initCanvas();window.addEventListener("resize",initCanvas);return()=>window.removeEventListener("resize",initCanvas);},[initCanvas]);
+  const initCanvas=useCallback(()=>{
+    const c=canvasRef.current;if(!c)return;
+    // offsetWidth가 0이면 window 크기로 폴백
+    c.width=c.offsetWidth||window.innerWidth||360;
+    c.height=c.offsetHeight||window.innerHeight||640;
+  },[]);
+  useEffect(()=>{
+    // 레이아웃 정착 후 한 번 더 실행
+    initCanvas();
+    requestAnimationFrame(initCanvas);
+    window.addEventListener("resize",initCanvas);
+    return()=>window.removeEventListener("resize",initCanvas);
+  },[initCanvas]);
 
   const sphereWorldX=(s)=>s.sphere.col*PIECE_W+s.sphere.lx;
   const sphereWorldY=(s)=>s.sphere.row*PIECE_H+s.sphere.ly;
@@ -709,15 +933,16 @@ export default function SphereV9(){
     const pieceSize=Math.min(Math.min(cw*0.82/Math.max(gridW+2,3),boardAreaH/Math.max(gridH+2,3)),120);
     const stride=pieceSize*(1.12);
     const boardCX=cw/2,boardCY=ch*0.36;
-    const toSX=(col)=>boardCX+(col-minC-(gridW-1)/2)*stride;
-    const toSY=(row)=>boardCY+(row-minR-(gridH-1)/2)*stride;
+    const bcx=s.boardCam?.x||0,bcy=s.boardCam?.y||0;
+    const toSX=(col)=>boardCX+(col-minC-(gridW-1)/2)*stride+bcx;
+    const toSY=(row)=>boardCY+(row-minR-(gridH-1)/2)*stride+bcy;
     const rect=canvasRef.current.getBoundingClientRect();
     const sx=cx-rect.left,sy=cy-rect.top;
     const scatterR=Math.min(cw,ch)*0.42,invCX=cw/2,invCY=ch/2;
     let tappedInvId=null;
     inventoryPieces.forEach(inv=>{
-      const ix=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist;
-      const iy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist;
+      const ix=invCX+Math.cos(inv.scatterAngle)*scatterR*inv.scatterDist+bcx;
+      const iy=invCY+Math.sin(inv.scatterAngle)*scatterR*inv.scatterDist+bcy;
       const ps=pieceSize*(inv.id===selectedInventoryId?0.62:0.52);
       if(Math.abs(sx-ix)<ps*0.6&&Math.abs(sy-iy)<ps*0.6)tappedInvId=inv.id;
     });
@@ -732,6 +957,7 @@ export default function SphereV9(){
           placedMap.set(k,{themeId:inv.themeId,explored:0,gemCount:0});
           s.pieceNodes.set(k,generatePieceNodes(inv.themeId));
           s.pieceParticles.set(k,Array.from({length:PARTICLE_COUNT},()=>makeParticle(inv.themeId)));
+          s.pieceStars.set(k,generateStarForPiece(k));
           s.inventoryPieces=inventoryPieces.filter(i=>i.id!==selectedInventoryId);
           s.puzzleFragments=puzzleFragments-1;s.selectedInventoryId=null;
           audio.current.piecePlace();haptic.current.puzzlePiecePlace();
@@ -778,9 +1004,13 @@ export default function SphereV9(){
     const handlePointerEnd=(cx,cy)=>{
       const s=stateRef.current;
       clearTimeout(pressTimerRef.current);
+      // ★ 보드 패닝 종료
+      const wasBoardDragging=s.boardIsDragging;
+      s.boardIsDragging=false;s.boardDragLast=null;s.boardDragTotal=0;
       const wasReveal=s.revealMode,wasDragging=s.isDragging;
       s.isDragging=false;s.pressStart=null;s.pressProgress=0;s.revealMode=false;s.pressScreenStart=null;
       if(au.ready)au.releasePressCharge(false);
+      if(wasBoardDragging) return; // 보드 패닝 중이었으면 탭 처리 안 함
       if(wasDragging&&s.zoomedOut&&s.orbitPreview){
         const wp=toWorld(cx,cy);
         const swx=sphereWorldX(s),swy=sphereWorldY(s);
@@ -808,7 +1038,21 @@ export default function SphereV9(){
     // ★ 조이스틱 방식: 드래그 시작점(pressScreenStart) 기준 상대 방향
     const handlePointerMove=(cx,cy,sX,sY)=>{
       const s=stateRef.current;
-      if(s.puzzleView)return;
+      if(s.puzzleView){
+        // ★ 퍼즐 판 패닝 — 손가락 이동량만큼 지도 이동
+        if(s.pressScreenStart&&s.boardDragLast){
+          const dx=cx-s.boardDragLast.x,dy=cy-s.boardDragLast.y;
+          s.boardCam.x+=dx;s.boardCam.y+=dy;
+          s.boardDragLast={x:cx,y:cy};
+          s.boardDragTotal=(s.boardDragTotal||0)+Math.hypot(dx,dy);
+          if(s.boardDragTotal>DRAG_THRESHOLD){
+            s.boardIsDragging=true;
+            s.pressStart=null;  // ★ pressCharge 햅틱 차단
+            clearTimeout(pressTimerRef.current);
+          }
+        }
+        return;
+      }
       if(s.pressScreenStart&&!s.isDragging&&!s.revealMode){
         if(Math.hypot(sX-s.pressScreenStart.x,sY-s.pressScreenStart.y)>DRAG_THRESHOLD){
           s.isDragging=true;clearTimeout(pressTimerRef.current);s.pressProgress=0;
@@ -838,6 +1082,8 @@ export default function SphereV9(){
       s.pressWorld={wx:wp.x,wy:wp.y};
       s.pressScreenStart={x:sX,y:sY};
       s.pressProgress=0;s.revealMode=false;s.isDragging=false;
+      // ★ 보드 패닝 초기화
+      s.boardDragLast={x:cx,y:cy};s.boardIsDragging=false;s.boardDragTotal=0;
       pressTimerRef.current=setTimeout(()=>{
         const ss=stateRef.current;
         if(!ss.pressStart||ss.isDragging||ss.puzzleView)return;
@@ -849,14 +1095,94 @@ export default function SphereV9(){
     const onMD=e=>startPress(e.clientX,e.clientY,e.clientX,e.clientY);
     const onMU=e=>handlePointerEnd(e.clientX,e.clientY);
     const onMM=e=>handlePointerMove(e.clientX,e.clientY,e.clientX,e.clientY);
-    const onTS=e=>{e.preventDefault();const t=e.touches[0];startPress(t.clientX,t.clientY,t.clientX,t.clientY);};
-    const onTE=e=>{e.preventDefault();const t=e.changedTouches[0];handlePointerEnd(t.clientX,t.clientY);};
-    const onTM=e=>{e.preventDefault();const t=e.touches[0];handlePointerMove(t.clientX,t.clientY,t.clientX,t.clientY);};
+
+    const onTS=e=>{
+      e.preventDefault();
+      if(e.touches.length===2&&stateRef.current.puzzleView){
+        // 핀치 시작 — 단일 탭/드래그 상태 완전 초기화
+        clearTimeout(pressTimerRef.current);clearPending();
+        const s=stateRef.current;
+        s.pressStart=null;s.pressProgress=0;s.pressScreenStart=null;
+        s.boardIsDragging=false;s.boardDragTotal=0;
+        const t0=e.touches[0],t1=e.touches[1];
+        pinchRef.current={
+          dist:Math.hypot(t0.clientX-t1.clientX,t0.clientY-t1.clientY),
+          midX:(t0.clientX+t1.clientX)/2,
+          midY:(t0.clientY+t1.clientY)/2,
+          zoom:stateRef.current.boardZoom,
+          bcx:stateRef.current.boardCam.x,
+          bcy:stateRef.current.boardCam.y,
+        };
+        stateRef.current.boardIsDragging=false;
+        return;
+      }
+      pinchRef.current=null;
+      const t=e.touches[0];startPress(t.clientX,t.clientY,t.clientX,t.clientY);
+    };
+
+    const onTE=e=>{
+      e.preventDefault();
+      if(e.touches.length===1&&pinchRef.current){
+        // 핀치 → 단일 터치 전환: 남은 손가락 위치로 드래그 상태 완전 리셋
+        const t=e.touches[0];
+        pinchRef.current=null;
+        const s=stateRef.current;
+        // boardDragLast를 현재 손가락 위치로 리셋 — 이전 핀치 위치 잔상 제거
+        s.boardDragLast={x:t.clientX,y:t.clientY};
+        s.boardDragTotal=0;s.boardIsDragging=false;
+        s.pressScreenStart={x:t.clientX,y:t.clientY};
+        s.pressStart=null;s.pressProgress=0;
+        clearTimeout(pressTimerRef.current);
+        return;
+      }
+      if(e.touches.length<2){
+        pinchRef.current=null;
+        // 두 손가락 모두 뗐을 때 boardDragLast 초기화
+        stateRef.current.boardDragLast=null;
+      }
+      if(e.touches.length===0){
+        const t=e.changedTouches[0];handlePointerEnd(t.clientX,t.clientY);
+      }
+    };
+
+    const onTM=e=>{
+      e.preventDefault();
+      // 핀치 줌 처리
+      if(e.touches.length===2&&pinchRef.current&&stateRef.current.puzzleView){
+        const t0=e.touches[0],t1=e.touches[1];
+        const newDist=Math.hypot(t0.clientX-t1.clientX,t0.clientY-t1.clientY);
+        const ratio=newDist/pinchRef.current.dist;
+        const newZoom=Math.max(0.35,Math.min(4.0,pinchRef.current.zoom*ratio));
+        const s=stateRef.current;
+        const c=canvasRef.current;
+        if(!c)return;
+        const rect=c.getBoundingClientRect();
+        const pcx=pinchRef.current.midX-rect.left;
+        const pcy=pinchRef.current.midY-rect.top;
+        const boardCX=c.width/2,boardCY=c.height*0.36;
+        const zr=newZoom/pinchRef.current.zoom;
+        // 핀치 중심 고정: bcx_new = pcx - boardCX + (bcx_old + boardCX - pcx) * zr/1 ... 아래 공식
+        s.boardCam.x=(pinchRef.current.bcx-(pcx-boardCX))*(newZoom/pinchRef.current.zoom)+(pcx-boardCX);
+        s.boardCam.y=(pinchRef.current.bcy-(pcy-boardCY))*(newZoom/pinchRef.current.zoom)+(pcy-boardCY);
+        s.boardZoom=newZoom;
+        return;
+      }
+      const t=e.touches[0];handlePointerMove(t.clientX,t.clientY,t.clientX,t.clientY);
+    };
 
     canvas.addEventListener("mousedown",onMD);canvas.addEventListener("mouseup",onMU);canvas.addEventListener("mousemove",onMM);
+    // 마우스 휠 줌 (데스크탑)
+    const onWheel=e=>{
+      const s=stateRef.current;if(!s.puzzleView)return;
+      e.preventDefault();
+      const delta=e.deltaY>0?0.88:1.14;
+      s.boardZoom=Math.max(0.35,Math.min(4.5,s.boardZoom*delta));
+    };
+    canvas.addEventListener("wheel",onWheel,{passive:false});
     canvas.addEventListener("touchstart",onTS,{passive:false});canvas.addEventListener("touchend",onTE,{passive:false});canvas.addEventListener("touchmove",onTM,{passive:false});
     return()=>{
       canvas.removeEventListener("mousedown",onMD);canvas.removeEventListener("mouseup",onMU);canvas.removeEventListener("mousemove",onMM);
+      canvas.removeEventListener("wheel",onWheel);
       canvas.removeEventListener("touchstart",onTS);canvas.removeEventListener("touchend",onTE);canvas.removeEventListener("touchmove",onTM);
       clearTimeout(pressTimerRef.current);clearPending();
     };
@@ -875,7 +1201,7 @@ export default function SphereV9(){
       if(!cw||!ch){animRef.current=requestAnimationFrame(draw);return;}
       s.time+=0.016;frame++;
 
-      if(s.pressStart&&!s.isDragging){
+      if(s.pressStart&&!s.isDragging&&!s.boardIsDragging){
         s.pressProgress=Math.min(1,(performance.now()-s.pressStart.t)/LONG_PRESS_MS);
         if(au.ready)au.pressCharge(s.pressProgress);hp.pressCharge(s.pressProgress);
       }
@@ -883,9 +1209,8 @@ export default function SphereV9(){
       if(s.puzzleView)s.zoomTarget=ZOOM_OUT*0.55;
       s.zoom+=(s.zoomTarget-s.zoom)*0.06;
 
-      // ── 이동 ────────────────────────────────────────────────────────────────
-      if(!s.puzzleView){
-        if(s.orbit){
+      // ── 이동 (puzzleView 여부 무관하게 항상 실행) ────────────────────────────
+      if(s.orbit){
           s.orbit.angle+=s.orbit.angularSpeed;
           const swx=s.orbit.cx+Math.cos(s.orbit.angle)*s.orbit.radius;
           const swy=s.orbit.cy+Math.sin(s.orbit.angle)*s.orbit.radius;
@@ -924,7 +1249,6 @@ export default function SphereV9(){
           if(s.sphere.ly>PIECE_H){const nk=pk(s.sphere.col,s.sphere.row+1);if(s.placedMap.has(nk)){s.sphere.row++;s.sphere.ly-=PIECE_H;}else{s.sphere.ly=PIECE_H-1;s.vel.y=Math.min(s.vel.y,-0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
           if(s.sphere.ly<0){const nk=pk(s.sphere.col,s.sphere.row-1);if(s.placedMap.has(nk)){s.sphere.row--;s.sphere.ly+=PIECE_H;}else{s.sphere.ly=1;s.vel.y=Math.max(s.vel.y,0.2);s.targetAngle=Math.atan2(s.vel.y,s.vel.x);}}
         }
-      }
 
       const newKey=pk(s.sphere.col,s.sphere.row);
       if(newKey!==s.currentPieceKey&&s.placedMap.has(newKey))s.currentPieceKey=newKey;
@@ -949,9 +1273,21 @@ export default function SphereV9(){
       const curNodes=s.pieceNodes.get(s.currentPieceKey)||[];
       const curPieceData=s.placedMap.get(s.currentPieceKey);
       const curTheme=THEMES[curPieceData?.themeId||0];
+      const curStars=s.pieceStars.get(s.currentPieceKey)||[];
 
       // ★ 테마 앰비언트 트리거
-      if(au.ready)au.startThemeAmb(curPieceData?.themeId??0);
+      if(au.ready)try{au.startThemeAmb(curPieceData?.themeId??0);}catch(_){}
+
+      // ── 별 업데이트 (discovered 감지) ────────────────────────────────────────
+      curStars.forEach(star=>{
+        const sx=s.sphere.col*PIECE_W+star.x,sy=s.sphere.row*PIECE_H+star.y;
+        const d=Math.hypot(swx-sx,swy-sy);
+        const near=d<STAR_LIGHT_RADIUS;
+        const targetBri=near?(1-d/STAR_LIGHT_RADIUS)*0.88+STAR_AMBIENT:STAR_AMBIENT;
+        star.brightness+=(targetBri-star.brightness)*0.04;
+        star.phase+=0.012;
+        if(!star.discovered&&d<STAR_LIGHT_RADIUS*0.6)star.discovered=true;
+      });
 
       // ── 근접/공전 수집 ───────────────────────────────────────────────────────
       const PROX_RATE=5, ORBIT_BONUS=3;
@@ -1161,6 +1497,112 @@ export default function SphereV9(){
         if(n.isGem&&n.gemCollected){ctx.beginPath();ctx.arc(sxn,syn,n.baseSize*0.6*s.zoom,0,Math.PI*2);ctx.strokeStyle=`hsla(${n.gemHue},40%,50%,0.22)`;ctx.lineWidth=1;ctx.stroke();}
       });
 
+      // ── ★ 항성 렌더 (탐험 내부) ──────────────────────────────────────────────
+      curStars.forEach(star=>{
+        const sxw=s.sphere.col*PIECE_W+star.x,syw=s.sphere.row*PIECE_H+star.y;
+        const ssx=wx(sxw),ssy=wy(syw);
+        if(ssx<-300||ssx>cw+300||ssy<-300||ssy>ch+300)return;
+        const bri=star.brightness;
+        const pulse=Math.sin(star.phase*1.1)*0.18+0.82;
+        const sz=star.size*s.zoom;
+        // 원거리 광환 (항상 보임)
+        const farR=STAR_LIGHT_RADIUS*s.zoom*0.55;
+        const farG=ctx.createRadialGradient(ssx,ssy,0,ssx,ssy,farR);
+        farG.addColorStop(0,`hsla(${star.hue},80%,85%,${bri*0.22})`);
+        farG.addColorStop(0.5,`hsla(${star.hue},70%,70%,${bri*0.06})`);
+        farG.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=farG;ctx.beginPath();ctx.arc(ssx,ssy,farR,0,Math.PI*2);ctx.fill();
+        // 근거리 코어 글로우
+        if(bri>STAR_AMBIENT+0.05){
+          const nearR=sz*7*pulse;
+          const nearG=ctx.createRadialGradient(ssx,ssy,0,ssx,ssy,nearR);
+          nearG.addColorStop(0,`hsla(${star.hue},90%,96%,${bri*0.7})`);
+          nearG.addColorStop(0.3,`hsla(${star.hue},80%,80%,${bri*0.3})`);
+          nearG.addColorStop(1,"rgba(0,0,0,0)");
+          ctx.fillStyle=nearG;ctx.beginPath();ctx.arc(ssx,ssy,nearR,0,Math.PI*2);ctx.fill();
+        }
+        // 광선
+        const rayLen=sz*(3.5+pulse*1.5);
+        ctx.save();ctx.translate(ssx,ssy);ctx.rotate(star.phase*0.18);
+        [0,1,2,3].forEach(ri=>{
+          ctx.save();ctx.rotate(ri*Math.PI/2);
+          ctx.beginPath();ctx.moveTo(0,-sz*0.5);ctx.lineTo(0,-rayLen);
+          const rayA=bri*(0.6+pulse*0.4);
+          ctx.strokeStyle=`hsla(${star.hue},90%,95%,${rayA})`;
+          ctx.lineWidth=Math.max(0.8,sz*0.22);ctx.lineCap="round";ctx.stroke();
+          ctx.restore();
+        });
+        [0,1,2,3].forEach(ri=>{
+          ctx.save();ctx.rotate(ri*Math.PI/2+Math.PI/4);
+          ctx.beginPath();ctx.moveTo(0,-sz*0.3);ctx.lineTo(0,-rayLen*0.55);
+          ctx.strokeStyle=`hsla(${star.hue},85%,90%,${bri*0.4*pulse})`;
+          ctx.lineWidth=Math.max(0.5,sz*0.12);ctx.lineCap="round";ctx.stroke();
+          ctx.restore();
+        });
+        // 코어
+        ctx.beginPath();ctx.arc(0,0,sz,0,Math.PI*2);
+        const cg=ctx.createRadialGradient(-sz*0.25,-sz*0.25,0,0,0,sz);
+        cg.addColorStop(0,`hsla(${star.hue},60%,100%,${bri*pulse})`);
+        cg.addColorStop(0.5,`hsla(${star.hue},80%,90%,${bri*pulse*0.9})`);
+        cg.addColorStop(1,`hsla(${star.hue},70%,70%,${bri*pulse*0.7})`);
+        ctx.fillStyle=cg;ctx.fill();
+        ctx.restore();
+        // 발견 전 힌트 텍스트 (멀리서 보일 때)
+        if(!star.discovered&&bri>STAR_AMBIENT+0.02){
+          ctx.fillStyle=`hsla(${star.hue},80%,85%,${(bri-STAR_AMBIENT)*2})`;
+          ctx.font=`${Math.round(Math.max(9,sz*0.7))}px 'Courier New',monospace`;
+          ctx.textAlign="center";ctx.fillText("✦",ssx,ssy+sz*3.8);
+        }
+      });
+
+      // ★ BOARD_STARS — 현재 조각 안에 위치한 별도 탐험 뷰에서 렌더
+      BOARD_STARS.forEach(bstar=>{
+        const bcol=Math.floor(bstar.col),brow=Math.floor(bstar.row);
+        if(bcol!==s.sphere.col||brow!==s.sphere.row)return;
+        // 조각 내 로컬 좌표
+        const lx=(bstar.col-bcol)*PIECE_W,ly=(bstar.row-brow)*PIECE_H;
+        const nxw=s.sphere.col*PIECE_W+lx,nyw=s.sphere.row*PIECE_H+ly;
+        const ssx=wx(nxw),ssy=wy(nyw);
+        if(ssx<-300||ssx>cw+300||ssy<-300||ssy>ch+300)return;
+        const t=BOARD_STAR_TYPES[bstar.typeIdx];
+        const pulse=Math.sin(s.time*t.pulseSpd+bstar.phase)*0.22+0.78;
+        const d=Math.hypot(swx-nxw,swy-nyw);
+        const near=d<STAR_LIGHT_RADIUS*1.8;
+        const bri=near?Math.min(1,(1-d/(STAR_LIGHT_RADIUS*1.8))*0.9+0.18):0.18;
+        const sz=Math.max(10,18)*s.zoom*pulse;
+        // 광환
+        const farR=STAR_LIGHT_RADIUS*s.zoom*0.8;
+        const farG=ctx.createRadialGradient(ssx,ssy,0,ssx,ssy,farR);
+        farG.addColorStop(0,`hsla(${t.h0},85%,90%,${bri*0.28})`);
+        farG.addColorStop(0.5,`hsla(${t.h1},75%,72%,${bri*0.07})`);
+        farG.addColorStop(1,"rgba(0,0,0,0)");
+        ctx.fillStyle=farG;ctx.beginPath();ctx.arc(ssx,ssy,farR,0,Math.PI*2);ctx.fill();
+        // 광선
+        ctx.save();ctx.translate(ssx,ssy);ctx.rotate(s.time*t.raySpd+bstar.phase);
+        for(let ri=0;ri<t.rayN;ri++){
+          ctx.save();ctx.rotate(ri*Math.PI*2/t.rayN);
+          ctx.beginPath();ctx.moveTo(0,-sz*0.3);ctx.lineTo(0,-sz*t.rayLen*0.9);
+          ctx.strokeStyle=`hsla(${t.h0},90%,95%,${bri*0.88})`;
+          ctx.lineWidth=Math.max(0.8,sz*t.rayW*0.6);ctx.lineCap="round";ctx.stroke();
+          ctx.restore();
+        }
+        // 코어
+        ctx.beginPath();ctx.arc(0,0,sz*0.55,0,Math.PI*2);
+        const cg=ctx.createRadialGradient(-sz*0.15,-sz*0.15,0,0,0,sz*0.55);
+        cg.addColorStop(0,`hsla(${t.h0},60%,99%,${bri})`);
+        cg.addColorStop(0.5,`hsla(${t.h0},80%,88%,${bri*0.9})`);
+        cg.addColorStop(1,`hsla(${t.h1},70%,65%,${bri*0.7})`);
+        ctx.fillStyle=cg;ctx.fill();
+        ctx.restore();
+        // 타입 이름 (가까울 때)
+        if(bri>0.25){
+          ctx.fillStyle=`hsla(${t.h0},75%,85%,${(bri-0.18)*1.5})`;
+          ctx.font=`${Math.round(Math.max(9,sz*0.45))}px 'Courier New',monospace`;
+          ctx.textAlign="center";ctx.fillText(t.name,ssx,ssy+sz+8);
+        }
+        if(!bstar.discovered&&d<STAR_LIGHT_RADIUS*0.9)bstar.discovered=true;
+      });
+
       // orbit
       if(s.orbit){
         const ocx=wx(s.orbit.cx),ocy=wy(s.orbit.cy);
@@ -1218,7 +1660,7 @@ export default function SphereV9(){
 
       // 퍼즐 판 오버레이
       if(s.puzzleAlpha>0.01)
-        drawPuzzleBoard(ctx,cw,ch,{placedMap:s.placedMap,currentPieceKey:s.currentPieceKey,inventoryPieces:s.inventoryPieces,selectedInventoryId:s.selectedInventoryId,puzzleFragments:s.puzzleFragments},s.time,s.puzzleAlpha);
+        drawPuzzleBoard(ctx,cw,ch,{placedMap:s.placedMap,currentPieceKey:s.currentPieceKey,inventoryPieces:s.inventoryPieces,selectedInventoryId:s.selectedInventoryId,puzzleFragments:s.puzzleFragments,boardCam:s.boardCam,boardZoom:s.boardZoom,pieceStars:s.pieceStars,sphere:s.sphere},s.time,s.puzzleAlpha);
 
       // 구체 디테일 오버레이
       if(s.detailAlpha>0.01&&s.shardPattern)
@@ -1269,7 +1711,7 @@ export default function SphereV9(){
 
       {/* 🗺 퍼즐 판 버튼 */}
       <button
-        onClick={()=>{const s=stateRef.current;s.puzzleView=!s.puzzleView;s.zoomTarget=s.puzzleView?ZOOM_OUT*0.55:ZOOM_NORMAL;s.selectedInventoryId=null;}}
+        onClick={()=>{const s=stateRef.current;s.puzzleView=!s.puzzleView;s.zoomTarget=s.puzzleView?ZOOM_OUT*0.55:ZOOM_NORMAL;s.selectedInventoryId=null;if(s.puzzleView){s.boardCam={x:0,y:0};s.boardZoom=1.0;}}}
         style={{position:"absolute",bottom:20,right:20,width:44,height:44,borderRadius:"50%",
           border:"1px solid rgba(150,130,255,0.35)",background:"rgba(10,8,28,0.75)",
           cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
@@ -1277,11 +1719,21 @@ export default function SphereV9(){
         🗺
       </button>
 
+      {/* ↺ 퍼즐 판 중심으로 */}
+      {stats.puzzleView&&<button
+        onClick={()=>{stateRef.current.boardCam={x:0,y:0};stateRef.current.boardZoom=1.0;}}
+        style={{position:"absolute",bottom:20,right:72,width:36,height:36,borderRadius:"50%",
+          border:"1px solid rgba(150,130,255,0.22)",background:"rgba(10,8,28,0.65)",
+          cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:"13px",color:"rgba(150,140,210,0.55)",backdropFilter:"blur(4px)"}}>
+        ↺
+      </button>}
+
       {/* 하단 힌트 */}
       <div style={{position:"absolute",bottom:16,left:"50%",transform:"translateX(-50%)",pointerEvents:"none"}}>
         <span style={{color:"rgba(110,100,170,0.28)",fontSize:"9px",letterSpacing:"0.09em",whiteSpace:"nowrap"}}>
           {stats.puzzleView
-            ?"조각 탭 → 선택 · 점선 탭 → 배치  |  🗺 또는 더블탭 → 돌아가기"
+            ?"두 손가락 핀치 → 확대/축소 · 드래그 → 이동 · 조각 탭 → 선택 · 점선 탭 → 배치  |  ↺ 초기화"
             :"누른 곳 기준 드래그 방향 · 꾹 범위 · 더블탭 줌아웃 · 🗺 퍼즐"}
         </span>
       </div>
